@@ -30,6 +30,7 @@ using std::make_pair;
 ******************************************************************************/
 ServerDemo :: ServerDemo(int i_iServerPort)
 {
+    m_pServerHandle=NULL;
     TcpServer::Init(NULL,i_iServerPort);
 }
 
@@ -45,6 +46,10 @@ ServerDemo :: ServerDemo(int i_iServerPort)
 ******************************************************************************/
 ServerDemo :: ~ServerDemo()
 {
+    if(NULL != m_pServerHandle)
+    {
+        delete m_pServerHandle;
+    }  
 }
 
 /*****************************************************************************
@@ -60,18 +65,29 @@ ServerDemo :: ~ServerDemo()
 int ServerDemo :: Proc()
 {
     int iClientSocketFd=-1;
+    T_Peer2PeerCfg tPeer2PeerCfg;
     ThreadSafeQueue<QueueMessage> oThreadSafeQueue;
     ServerIO *pServerIO = NULL;
+
+    memset(&tPeer2PeerCfg,0,sizeof(T_Peer2PeerCfg));
+    snprintf(tPeer2PeerCfg.strStunServer1Addr,sizeof(tPeer2PeerCfg.strStunServer1Addr),"%s","stun.voipbuster.com");
+    tPeer2PeerCfg.iStunServer1Port=3478;
+    snprintf(tPeer2PeerCfg.strStunServer2Addr,sizeof(tPeer2PeerCfg.strStunServer2Addr),"%s","gwm-000-cn-0448.bcloud365.net");
+    tPeer2PeerCfg.iStunServer2Port=3478;
+    if(NULL == m_pServerHandle)
+    {
+        m_pServerHandle= new ServerHandle(&oThreadSafeQueue);
+    }  
     while(1)
     {
-        iClientSocketFd=TcpServer::Accept();
+        iClientSocketFd=TcpServer::Accept();//非阻塞，后续优化为线程阻塞效率更高些
         if(iClientSocketFd<0)  
         {  
             SleepMs(10);
             CheckMapServerIO();
             continue;
         } 
-        pServerIO = new ServerIO(iClientSocketFd,&oThreadSafeQueue);
+        pServerIO = new ServerIO(iClientSocketFd,&oThreadSafeQueue,&tPeer2PeerCfg);
         AddMapServerIO(pServerIO,iClientSocketFd);
         P2P_LOGD("m_ServerIOMap size %d\r\n",m_ServerIOMap.size());
     }

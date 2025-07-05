@@ -17,6 +17,7 @@
 
 static void PrintUsage(char *i_strProcName);
 
+unsigned short g_wServerPort=9128;//9128;//9160;
 /*****************************************************************************
 -Fuction        : main
 -Description    : main
@@ -31,7 +32,7 @@ int main(int argc, char* argv[])
 {
     int iRet = -1;
     
-    int dwServerPort=9150;
+    int dwServerPort=g_wServerPort;
     
     if(argc !=2)
     {
@@ -59,6 +60,6 @@ int main(int argc, char* argv[])
 static void PrintUsage(char *i_strProcName)
 {
     printf("Usage: %s ServerPort \r\n",i_strProcName);
-    printf("run default args: %s 9150 \r\n",i_strProcName);
+    printf("run default args: %s %d \r\n",i_strProcName,g_wServerPort);
 }
 

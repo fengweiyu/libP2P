@@ -32,12 +32,13 @@ using std::thread;
 * -----------------------------------------------
 * 2017/10/10	  V1.0.0		 Yu Weifeng 	  Created
 ******************************************************************************/
-ServerIO :: ServerIO(int i_iClientSocketFd,ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
+ServerIO :: ServerIO(int i_iClientSocketFd,ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg)
 {
     m_iClientSocketFd=i_iClientSocketFd;
+    m_pServerSessionInf = NULL;
 
     m_iServerIOFlag = 0;
-    m_pServerIOProc = new thread(&ServerIO::Proc,this,i_pMgrQueue);
+    m_pServerIOProc = new thread(&ServerIO::Proc,this,i_pMgrQueue,i_ptPeer2PeerCfg);
     //m_pHttpSessionProc->detach();//注意线程回收
 }
 
@@ -53,10 +54,10 @@ ServerIO :: ServerIO(int i_iClientSocketFd,ThreadSafeQueue<QueueMessage> * i_pMg
 ******************************************************************************/
 ServerIO :: ~ServerIO()
 {
-    if(NULL!= m_pServerSession)
+    if(NULL!= m_pServerSessionInf)
     {
-        delete m_pServerSession;
-        m_pServerSession = NULL;
+        delete m_pServerSessionInf;
+        m_pServerSessionInf = NULL;
     }
     if(NULL!= m_pServerIOProc)
     {
@@ -80,7 +81,7 @@ ServerIO :: ~ServerIO()
 * -----------------------------------------------
 * 2017/10/10	  V1.0.0		 Yu Weifeng 	  Created
 ******************************************************************************/
-int ServerIO :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
+int ServerIO :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg)
 {
     int iRet=-1;
     char *pcRecvBuf=NULL;
@@ -90,9 +91,9 @@ int ServerIO :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
     timeval tTimeValue;
 
     
-    if(NULL== m_pServerSession)
+    if(NULL== m_pServerSessionInf)
     {
-        m_pServerSession = new ServerSession(i_pMgrQueue);
+        m_pServerSessionInf = new ServerSessionInf(i_pMgrQueue,i_ptPeer2PeerCfg);
     }
     if(m_iClientSocketFd < 0)
     {
@@ -114,8 +115,22 @@ int ServerIO :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
     }
     m_iServerIOFlag = 1;
     P2P_LOGW("ServerIO start Proc\r\n");
+    iRecvLen = 0;
     while(m_iServerIOFlag)
     {
+        memset(pcSendBuf,0,IO_SEND_MAX_LEN);
+        iRet = m_pServerSessionInf->Proc(pcRecvBuf, iRecvLen, pcSendBuf, IO_SEND_MAX_LEN);
+        if(iRet > 0)
+        {
+            iSendLen=iRet;
+            iRet=TcpServer::Send(pcSendBuf,iSendLen,m_iClientSocketFd);
+            if(iRet<0)
+            {
+                P2P_LOGE("TcpServer::Send err exit %d\r\n",iRet);
+                break;
+            }
+        }
+    
         iRecvLen = 0;
         memset(pcRecvBuf,0,IO_RECV_MAX_LEN);
         milliseconds timeMS(300);// 表示300毫秒
@@ -128,18 +143,6 @@ int ServerIO :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
         if(iRecvLen<=0)
         {
             continue;
-        }
-        memset(pcSendBuf,0,IO_SEND_MAX_LEN);
-        iRet=m_pServerSession->Proc(pcRecvBuf,iRecvLen,pcSendBuf,IO_SEND_MAX_LEN)
-        if(iRet > 0)
-        {
-            iSendLen=iRet;
-            iRet=TcpServer::Send(pcSendBuf,iSendLen,m_iClientSocketFd);
-            if(iRet<0)
-            {
-                P2P_LOGE("TcpServer::Send err exit %d\r\n",iRet);
-                break;
-            }
         }
     }
     

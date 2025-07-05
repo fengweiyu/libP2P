@@ -1,7 +1,7 @@
 /*****************************************************************************
 * Copyright (C) 2020-2025 Hanson Yu  All rights reserved.
 ------------------------------------------------------------------------------
-* File Module           :       ServerSessionInf.cpp
+* File Module           :       ServerHandle.cpp
 * Description           : 	    接口层，防止曝露内部文件
 * Created               :       2020.01.13.
 * Author                :       Yu Weifeng
@@ -9,11 +9,11 @@
 * Last Modified         : 	
 * History               : 	
 ******************************************************************************/
-#include "ServerSessionInf.h"
-#include "HttpFlvServer.h"
+#include "ServerHandle.h"
+#include "Peer2PeerManager.h"
 
 /*****************************************************************************
--Fuction        : HttpFlvServerInf
+-Fuction        : ServerHandle
 -Description    : 
 -Input          : 
 -Output         : 
@@ -22,14 +22,17 @@
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-HttpFlvServerInf::HttpFlvServerInf()
+ServerHandle::ServerHandle(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
 {
     m_pHandle = NULL;
-    m_pHandle = new HttpFlvServer();
+    m_pHandle = new Peer2PeerManager();
+    
+    m_iServerHandleFlag = 0;
+    m_pServerHandleProc = new thread(&ServerHandle::Proc,this,i_pMgrQueue);
 }
 /*****************************************************************************
--Fuction        : ~WebRtcInterface
--Description    : ~WebRtcInterface
+-Fuction        : ~ServerHandle
+-Description    : ~ServerHandle
 -Input          : 
 -Output         : 
 -Return         : 
@@ -37,12 +40,21 @@ HttpFlvServerInf::HttpFlvServerInf()
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-HttpFlvServerInf::~HttpFlvServerInf()
+ServerHandle::~ServerHandle()
 {
+    if(NULL!= m_pServerHandleProc)
+    {
+        P2P_LOGW("~~ServerHandle start exit\r\n");
+        m_iServerHandleFlag = 0;
+        m_pServerHandleProc->join();//
+        delete m_pServerHandleProc;
+        m_pServerHandleProc = NULL;
+    }
+    P2P_LOGW("~~ServerHandle exit\r\n");
     if(NULL != m_pHandle)
     {
-        HttpFlvServer *pHlsServer = (HttpFlvServer *)m_pHandle;
-        delete pHlsServer;
+        Peer2PeerManager *pPeer2PeerManager = (Peer2PeerManager *)m_pHandle;
+        delete pPeer2PeerManager;
     }  
 }
 
@@ -56,24 +68,18 @@ HttpFlvServerInf::~HttpFlvServerInf()
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-int HttpFlvServerInf::HandleHttpReq(const char * i_strReq,char *o_strRes,int i_iResMaxLen)
+int ServerHandle::Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
 {
-    HttpFlvServer *pServer = (HttpFlvServer *)m_pHandle;
-    return pServer->HandleHttpReq(i_strReq,o_strRes,i_iResMaxLen);
-}
-/*****************************************************************************
--Fuction        : Proc
--Description    : Proc
--Input          : 
--Output         : 
--Return         : 
-* Modify Date     Version             Author           Modification
-* -----------------------------------------------
-* 2020/01/13      V1.0.0              Yu Weifeng       Created
-******************************************************************************/
-int HttpFlvServerInf::GetFLV(char *o_strRes,int i_iResMaxLen)
-{
-    HttpFlvServer *pServer = (HttpFlvServer *)m_pHandle;
-    return pServer->GetFLV(o_strRes,i_iResMaxLen);
+    int iRet = -1;
+    
+    m_iServerHandleFlag = 1;
+    P2P_LOGW("ServerHandle start Proc\r\n");
+    while(m_iServerHandleFlag)
+    {
+        Peer2PeerManager *pPeer2PeerManager = (Peer2PeerManager *)m_pHandle;
+        iRet = pPeer2PeerManager->Proc(i_pMgrQueue);
+    }
+    m_iServerHandleFlag=0;
+    return iRet;
 }
 

@@ -1,41 +1,85 @@
-cmake_minimum_required (VERSION 2.8)
-
-SET(CMAKE_TOOLCHAIN_FILE "build/ToolChain.cmake")
-#SET(CMAKE_SYSTEM_NAME "Linux")
-#SET(CMAKE_C_COMPILER "gcc")
-#SET(CMAKE_CXX_COMPILER "g++")
+cmake_minimum_required(VERSION 3.15) 
 
 
-project (HttpFlvServer)
-SET(USE_STATIC_LIB_LINKAGE ON)
+project (libP2PServerDemo)
+ 
 
 #SET(CMAKE_C_FLAGS "-g")
 SET(CMAKE_CXX_FLAGS "-g -std=c++11 -pthread ")
 # 设置C++标准为C++11
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-SET(src_list
-    main.cpp
-    HttpFlvServerDemo.cpp
-    HttpFlvServerIO.cpp
-	)		
-INCLUDE_DIRECTORIES(${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/net/include
-    ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/lib/include
-	)
-ADD_EXECUTABLE(HttpFlvServer ${src_list})
-TARGET_LINK_LIBRARIES(HttpFlvServer ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/net/libnet.a)
-TARGET_LINK_LIBRARIES(HttpFlvServer ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/lib/libHttpFlvServer.a)
-TARGET_LINK_LIBRARIES(HttpFlvServer ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/ThirdLib/http/libhttp.a)
-TARGET_LINK_LIBRARIES(HttpFlvServer ${PROJECT_SOURCE_DIR}/../build/linux/${CMAKE_ToolChain}/ThirdLib/media/lib/libmedia.a)
+message("CMAKE_SOURCE_DIR is: ${CMAKE_SOURCE_DIR} ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_LIST_DIR}")
 
 
+add_subdirectory(net) 
 
-SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/build)
 
+# 查找线程库(跨平台)  会查找在当前平台上可用的线程库，并定义 Threads::Threads 目标。如果没有找到库，REQUIRED 会导致配置失败
+if (UNIX AND NOT APPLE)  
+    find_package(Threads REQUIRED) 
+endif() 
+
+
+# 收集所有源文件  
+file(GLOB src_list "./*.cpp")  # 可以根据你的目录结构调整 
+
+#set(src_list
+#    src/xxx.cpp
+#)
+
+# 定义库  
+add_executable(P2PServerDemo ${src_list}) 
+
+target_include_directories(P2PServerDemo PUBLIC
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/net/include
+    ${PROJECT_SOURCE_DIR}/../src/include
+#    ${PROJECT_SOURCE_DIR}/../src/third/cJSON-1.7.12/include
+)
+#P2PServer依赖cJSON，linux编译就需要P2PServer cJSON net 这样的顺序放入，否则链接失败
+target_link_libraries(P2PServerDemo PUBLIC P2PServer cJSON net 
+#    ${CMAKE_BINARY_DIR}/demo/net/libnet.a  ${SYSTEM_PLAT_LIB_PATH}
+#    ${CMAKE_BINARY_DIR}/src/libHttpFlvClient.a
+#    ${CMAKE_BINARY_DIR}/src/ThirdSrc/http/libhttp.a
+#    ${CMAKE_BINARY_DIR}/src/ThirdSrc/media/libmedia.a
+) 
+
+
+if(WIN32)  
+    # Windows平台上链接WinSock库  iphlpapi获取本机ip地址需要
+    target_link_libraries(P2PServerDemo PUBLIC ws2_32)
+endif()
+
+
+#target_link_libraries(P2PServerDemo PRIVATE Threads::Threads)  
+#TARGET_LINK_LIBRARIES(webrtcServer -pthread -lm -lrt -ldl -lresolv -static)
+
+# 安装库文件  
+install(TARGETS P2PServerDemo  
+        DESTINATION P2PServerDemo) #安装目录 目录StunDemo换成目录. 也可以，这样就在当前目录生成不会生成在HttpFlvClientDemo目录下
+
+
+
+
+
+#SET_TARGET_PROPERTIES(base64_static PROPERTIES OUTPUT_NAME base64)
+#SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/build/lib)
+
+#TARGET_LINK_LIBRARIES(webrtc pthread -lm)
 
 #TARGET_LINK_LIBRARIES(crnode log4cpp thrift)
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -13,7 +13,7 @@
 #define SERVER_IO_H
 
 #include "TcpSocket.h"
-#include "ServerSession.h"
+#include "ServerSessionInf.h"
 #include <thread>
 #include <mutex>
 
@@ -30,14 +30,14 @@ using std::mutex;
 class ServerIO : TcpServer
 {
 public:
-	ServerIO(int i_iClientSocketFd);
+	ServerIO(int i_iClientSocketFd,ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg);
 	virtual ~ServerIO();
-    int Proc();
+    int Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg);
     int GetProcFlag();
 private:
 	int m_iClientSocketFd;
 	
-    ServerSession * m_pServerSession;
+    ServerSessionInf * m_pServerSessionInf;
 
     thread * m_pServerIOProc;
 	int m_iServerIOFlag;

@@ -10,10 +10,10 @@
 * History               : 	
 ******************************************************************************/
 #include "ServerSessionInf.h"
-#include "HttpFlvServer.h"
+#include "ServerSession.h"
 
 /*****************************************************************************
--Fuction        : HttpFlvServerInf
+-Fuction        : ServerSessionInf
 -Description    : 
 -Input          : 
 -Output         : 
@@ -22,14 +22,14 @@
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-HttpFlvServerInf::HttpFlvServerInf()
+ServerSessionInf::ServerSessionInf(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg)
 {
     m_pHandle = NULL;
-    m_pHandle = new HttpFlvServer();
+    m_pHandle = new ServerSession(i_pMgrQueue,i_ptPeer2PeerCfg);
 }
 /*****************************************************************************
--Fuction        : ~WebRtcInterface
--Description    : ~WebRtcInterface
+-Fuction        : ~ServerSessionInf
+-Description    : ~ServerSessionInf
 -Input          : 
 -Output         : 
 -Return         : 
@@ -37,12 +37,12 @@ HttpFlvServerInf::HttpFlvServerInf()
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-HttpFlvServerInf::~HttpFlvServerInf()
+ServerSessionInf::~ServerSessionInf()
 {
     if(NULL != m_pHandle)
     {
-        HttpFlvServer *pHlsServer = (HttpFlvServer *)m_pHandle;
-        delete pHlsServer;
+        ServerSession *pServerSession = (ServerSession *)m_pHandle;
+        delete pServerSession;
     }  
 }
 
@@ -56,24 +56,13 @@ HttpFlvServerInf::~HttpFlvServerInf()
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-int HttpFlvServerInf::HandleHttpReq(const char * i_strReq,char *o_strRes,int i_iResMaxLen)
+int ServerSessionInf::Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResMaxLen)
 {
-    HttpFlvServer *pServer = (HttpFlvServer *)m_pHandle;
-    return pServer->HandleHttpReq(i_strReq,o_strRes,i_iResMaxLen);
-}
-/*****************************************************************************
--Fuction        : Proc
--Description    : Proc
--Input          : 
--Output         : 
--Return         : 
-* Modify Date     Version             Author           Modification
-* -----------------------------------------------
-* 2020/01/13      V1.0.0              Yu Weifeng       Created
-******************************************************************************/
-int HttpFlvServerInf::GetFLV(char *o_strRes,int i_iResMaxLen)
-{
-    HttpFlvServer *pServer = (HttpFlvServer *)m_pHandle;
-    return pServer->GetFLV(o_strRes,i_iResMaxLen);
+    if(NULL != m_pHandle)
+    {
+        ServerSession *pServerSession = (ServerSession *)m_pHandle;
+        return pServerSession->Proc(i_strReq,i_iReqLen,o_strRes,i_iResMaxLen);
+    }  
+    return -1;
 }
 

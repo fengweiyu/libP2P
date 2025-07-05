@@ -35,6 +35,7 @@ using std::thread;
 ******************************************************************************/
 Peer2PeerManager :: Peer2PeerManager()
 {
+    m_pMgrQueue = NULL;
 
 }
 
@@ -67,123 +68,234 @@ int Peer2PeerManager :: Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue)
 
     if(NULL == i_pMgrQueue)
     {
-        TEST_LOGE("Test NULL \r\n");
+        P2P_LOGE("Peer2PeerManager :: Proc NULL \r\n");
         return iRet;
     }
     m_pMgrQueue=i_pMgrQueue;
-    // 从输入队列获取消息  
-    QueueMessage msg;  
-    if (m_pMgrQueue->WaitAndPop(msg, 100)<0) 
-    { // 100ms超时  
-        // 处理消息并回复  
-        Message reply;  
-        reply.sender_id = thread_id;  
-        reply.content = "Reply to: " + msg.content;  
-        out_queue.Push(reply);  
-    }  
-    return 0;
-}
-/*****************************************************************************
--Fuction        : proc
--Description    : proc
--Input          : 
--Output         : 
--Return         : 
-* Modify Date     Version             Author           Modification
-* -----------------------------------------------
-* 2020/01/01      V1.0.0              Yu Weifeng       Created
-******************************************************************************/
-int Peer2PeerManager :: AddNatInfo(const char * i_strSrcFilePath,const char *i_strDstFilePath)
-{
-    int iRet = -1;
-
-    if(NULL == i_strSrcFilePath || NULL == i_strDstFilePath)
-    {
-        TEST_LOGE("Test NULL \r\n");
+    QueueMessage oMsg;
+    if (0!=m_pMgrQueue->WaitAndPop(oMsg, 10)) // 10 ms超时  
+    { 
         return iRet;
     }
-    if(Proc(i_strSrcFilePath,i_strDstFilePath)<=0)
+    // 处理消息
+    iRet = -1;
+    switch(oMsg.iMsgID)
     {
-        return iRet;
-    }
-    return 0;
-}
+        case REPORT_NAT_INFO_MSG_ID:
+        {
+            if(sizeof(T_NatInfoMsg)!= oMsg.iDataSize||NULL == oMsg.pSender)
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc REPORT_NAT_INFO_MSG_ID err %d %d \r\n",sizeof(T_NatInfoMsg),oMsg.iDataSize);
+                return iRet;
+            }
+            string strID;
+            NatInfo oNatInfo;
+            T_NatInfoMsg * ptNatInfoMsg;
+            ptNatInfoMsg=(T_NatInfoMsg *)oMsg.pbData;
+            oNatInfo.pSession=oMsg.pSender;
+            oNatInfo.iNatType=ptNatInfoMsg->iNatType;
+            oNatInfo.iPublicPort=ptNatInfoMsg->iPublicPort;
+            oNatInfo.strPublicIP.assign(ptNatInfoMsg->strPublicIP);
+            strID.assign(ptNatInfoMsg->strID);
 
-/*****************************************************************************
--Fuction        : proc
--Description    : proc
--Input          : 
--Output         : 
--Return         : 
-* Modify Date     Version             Author           Modification
-* -----------------------------------------------
-* 2020/01/01      V1.0.0              Yu Weifeng       Created
-******************************************************************************/
-int Peer2PeerManager :: AddPeer2PeerResult(const char * i_strSrcFilePath,const char *i_strDstFilePath)
-{
-    unsigned char * pbSrcFileBuf=NULL;
-    unsigned char * pbFileBuf=NULL;
-	int iRet = -1,iReadLen = -1,iWriteLen=0;
-	int iMaxLen=0;
-    FILE *pDstFile=NULL;  
-
-
-    iReadLen=ReadFile(i_strSrcFilePath,&pbSrcFileBuf);
-    if(iReadLen <= 0)
-    {
-        TEST_LOGE("ReadFile err %s\r\n",i_strSrcFilePath);
-        return iRet;
-    } 
-    do
-    {
-        iRet=InputData(pbSrcFileBuf,iReadLen,i_strSrcFilePath,i_strDstFilePath);
-        if(iRet <= 0)
-        {
-            TEST_LOGE("InputData err %s %s\r\n",i_strSrcFilePath,i_strDstFilePath);
-            //break;
-        } 
-        iMaxLen=iReadLen+(10*1024*1024) ;
-        pbFileBuf = new unsigned char [iMaxLen];
-        if(NULL == pbFileBuf)
-        {
-            TEST_LOGE("NULL == pbFileBuf err\r\n");
-            break;
-        } 
-        iWriteLen=0;
-        iRet=0;
-        do
-        {
-            iWriteLen+=iRet;
-            iRet=GetData(pbFileBuf+iWriteLen,iMaxLen-iWriteLen);
-        } while(iRet>0);
-
-        
-        pDstFile = fopen(i_strDstFilePath,"wb");//
-        if(NULL == pDstFile)
-        {
-            TEST_LOGE("fopen %s err\r\n",i_strDstFilePath);
-            break;
-        } 
-        iRet = fwrite(pbFileBuf,1,iWriteLen, pDstFile);
-        if(iRet != iWriteLen)
-        {
-            printf("fwrite err %d iWriteLen%d\r\n",iRet,iWriteLen);
+            auto search = m_NatInfoMap.find(strID);
+            if (search == m_NatInfoMap.end())
+            {
+                m_NatInfoMap.insert(make_pair(strID,oNatInfo));
+            }
+            else
+            {
+                search->second.pSession=oNatInfo.pSession;
+                search->second.iNatType=oNatInfo.iNatType;
+                search->second.iPublicPort=oNatInfo.iPublicPort;
+                search->second.strPublicIP.assign(ptNatInfoMsg->strPublicIP);
+            }
+            iRet=0;
             break;
         }
-    }while(0);
+        case GET_NAT_INFO_MSG_ID:
+        {
+            char strPeerID[64];
+            if(sizeof(strPeerID)!= oMsg.iDataSize)
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc GET_NAT_INFO_MSG_ID err %d %d \r\n",sizeof(strPeerID),oMsg.iDataSize);
+                return iRet;
+            }
+            memset(strPeerID,0,sizeof(strPeerID));
+            memcpy(strPeerID,(char *)oMsg.pbData,sizeof(strPeerID));
+            string strPeer;
+            strPeer.assign(strPeerID);
+            
+            auto search = m_NatInfoMap.find(strPeer);
+            if (search == m_NatInfoMap.end())
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc m_NatInfoMap find err %s \r\n",strPeerID);
+                return iRet;
+            }
+            T_NatInfoMsg tNatInfoMsg;
+            memset(&tNatInfoMsg,0,sizeof(T_NatInfoMsg));
+            tNatInfoMsg.iNatType=search->second.iNatType;
+            tNatInfoMsg.iPublicPort=search->second.iPublicPort;
+            snprintf(tNatInfoMsg.strID,sizeof(tNatInfoMsg.strID),"%s",strPeerID);
+            snprintf(tNatInfoMsg.strPublicIP,sizeof(tNatInfoMsg.strPublicIP),"%s",search->second.strPublicIP.c_str());
+            ThreadSafeQueue<QueueMessage> * pQueue=(ThreadSafeQueue<QueueMessage> *)oMsg.pSender;//search->second.pSession;
+            QueueMessage oNatInfoMsg(GET_NAT_INFO_ACK_MSG_ID,(unsigned char *)&tNatInfoMsg,sizeof(T_NatInfoMsg));
+            iRet=pQueue->Push(oNatInfoMsg);  
+            if(iRet < 0)
+            {
+                P2P_LOGE("Peer2PeerManager::Proc GET_NAT_INFO_ACK_MSG_ID err %d \r\n",iRet);
+            }
+            break;
+        }
+        case REQ_PEER_SEND_MSG_MSG_ID:
+        {
+            if(sizeof(T_ReqPeerSendMsg)!= oMsg.iDataSize||NULL == oMsg.pSender)
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc REQ_PEER_SEND_MSG_MSG_ID err %d %d \r\n",sizeof(T_NatInfoMsg),oMsg.iDataSize);
+                return iRet;
+            }
+            string strPeerID;
+            T_ReqPeerSendMsg * ptReqPeerSendMsg;
+            ptReqPeerSendMsg=(T_ReqPeerSendMsg *)oMsg.pbData;
+            strPeerID.assign(ptReqPeerSendMsg->strPeerID);
+            auto search = m_NatInfoMap.find(strPeerID);
+            if (search == m_NatInfoMap.end())
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc m_NatInfoMap find strPeerID err %s \r\n",strPeerID.c_str());
+                return iRet;
+            }
+            ThreadSafeQueue<QueueMessage> * pQueue=(ThreadSafeQueue<QueueMessage> *)search->second.pSession;
+            QueueMessage oReqPeerSendMsg(REQ_SEND_MSG_TO_PEER_MSG_ID,(unsigned char *)&ptReqPeerSendMsg->tLocalNatInfo,sizeof(T_NatInfoMsg),oMsg.pSender);
+            iRet=pQueue->Push(oReqPeerSendMsg);
+            if(iRet < 0)
+            {
+                P2P_LOGE("Peer2PeerManager::Proc REQ_SEND_MSG_TO_PEER_MSG_ID err %d \r\n",iRet);
+            }
+            break;
+        }
+        case REQ_SEND_MSG_TO_PEER_ACK_MSG_ID:
+        {
+            if(sizeof(T_ReqSendMsgToPeerResultMsg)!= oMsg.iDataSize)
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc REQ_SEND_MSG_TO_PEER_ACK_MSG_ID err %d %d \r\n",sizeof(T_ReqSendMsgToPeerResultMsg),oMsg.iDataSize);
+                return iRet;
+            }
+            string strLocalID;
+            string strPeerID;
+            T_ReqSendMsgToPeerResultMsg * ptReqSendMsgToPeerResultMsg;
+            ptReqSendMsgToPeerResultMsg=(T_ReqSendMsgToPeerResultMsg *)oMsg.pbData;
+            strPeerID.assign(ptReqSendMsgToPeerResultMsg->strPeerID);
+            strLocalID.assign(ptReqSendMsgToPeerResultMsg->strLocalID);
+            
+            auto search = m_NatInfoMap.find(strPeerID);
+            if (search == m_NatInfoMap.end())
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc m_NatInfoMap find strPeerID err %s \r\n",strPeerID.c_str());
+                return iRet;
+            }
+            auto it = m_NatInfoMap.find(strLocalID);
+            if (it == m_NatInfoMap.end())
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc m_NatInfoMap find strLocalID err %s \r\n",strLocalID.c_str());
+                return iRet;
+            }
+            T_ReqPeerSendAckMsg tReqPeerSendAckMsg;
+            tReqPeerSendAckMsg.iResult=ptReqSendMsgToPeerResultMsg->iResult;
+            tReqPeerSendAckMsg.tPeerNatInfo.iNatType=it->second.iNatType;
+            tReqPeerSendAckMsg.tPeerNatInfo.iPublicPort=it->second.iPublicPort;
+            snprintf(tReqPeerSendAckMsg.tPeerNatInfo.strID,sizeof(tReqPeerSendAckMsg.tPeerNatInfo.strID),"%s",ptReqSendMsgToPeerResultMsg->strLocalID);
+            snprintf(tReqPeerSendAckMsg.tPeerNatInfo.strPublicIP,sizeof(tReqPeerSendAckMsg.tPeerNatInfo.strPublicIP),"%s",it->second.strPublicIP.c_str());
+            
+            ThreadSafeQueue<QueueMessage> * pQueue=(ThreadSafeQueue<QueueMessage> *)search->second.pSession;
+            QueueMessage oReqPeerSendAckMsg(REQ_PEER_SEND_MSG_ACK_MSG_ID,(unsigned char *)&tReqPeerSendAckMsg,sizeof(T_ReqPeerSendAckMsg));
+            iRet=pQueue->Push(oReqPeerSendAckMsg);
+            if(iRet < 0)
+            {
+                P2P_LOGE("Peer2PeerManager::Proc REQ_PEER_SEND_MSG_ACK_MSG_ID err %d \r\n",iRet);
+            }
+            break;
+        }
+        case REPORT_P2P_RESULT_MSG_ID:
+        {
+            if(sizeof(T_ReqSendMsgToPeerResultMsg)!= oMsg.iDataSize||NULL == oMsg.pSender)
+            {
+                P2P_LOGE("Peer2PeerManager :: Proc REPORT_P2P_RESULT_MSG_ID err %d %d \r\n",sizeof(T_ReqSendMsgToPeerResultMsg),oMsg.iDataSize);
+                return iRet;
+            }
+            int iSuccessCnt=0;
+            int iFailCnt=0;
+            int iCurStatus=-1;
+            string strKey;
+            Peer2PeerResult oPeer2PeerResult;
+            string strLocalID;
+            string strPeerID;
+            T_ReqSendMsgToPeerResultMsg * ptReqSendMsgToPeerResultMsg;
+            ptReqSendMsgToPeerResultMsg=(T_ReqSendMsgToPeerResultMsg *)oMsg.pbData;
+            strPeerID.assign(ptReqSendMsgToPeerResultMsg->strPeerID);
+            strLocalID.assign(ptReqSendMsgToPeerResultMsg->strLocalID);
+            strKey.assign(strLocalID.c_str());
+            strKey.append(strPeerID.c_str());
+            
+            auto search = m_Peer2PeerResultMap.find(strKey);
+            if (search == m_Peer2PeerResultMap.end())
+            {
+                Peer2PeerResult oPeer2PeerResult;
+                oPeer2PeerResult.strPeerID.assign(ptReqSendMsgToPeerResultMsg->strPeerID);
+                oPeer2PeerResult.strLocalID.assign(ptReqSendMsgToPeerResultMsg->strLocalID);
+                if(ptReqSendMsgToPeerResultMsg->iResult<0)
+                {
+                    oPeer2PeerResult.iFailCnt++;
+                    oPeer2PeerResult.iCurStatus=-1;
+                    iFailCnt=oPeer2PeerResult.iFailCnt;
+                }
+                else
+                {
+                    oPeer2PeerResult.iSuccessCnt++;
+                    oPeer2PeerResult.iCurStatus=0;
+                    iSuccessCnt=oPeer2PeerResult.iSuccessCnt;
+                }
+                iCurStatus=oPeer2PeerResult.iCurStatus;
+                m_Peer2PeerResultMap.insert(make_pair(strKey,oPeer2PeerResult));
+            }
+            else
+            {
+                if(ptReqSendMsgToPeerResultMsg->iResult<0)
+                {
+                    search->second.iFailCnt++;
+                    search->second.iCurStatus=-1;
+                    iFailCnt=search->second.iFailCnt;
+                }
+                else
+                {
+                    search->second.iSuccessCnt++;
+                    search->second.iCurStatus=0;
+                    iSuccessCnt=search->second.iSuccessCnt;
+                }
+                iCurStatus=search->second.iCurStatus;
+            }
+            T_PeerToPeerResultMsg tPeerToPeerResultMsg;
+            memset(&tPeerToPeerResultMsg,0,sizeof(T_PeerToPeerResultMsg));
+            tPeerToPeerResultMsg.iSuccessCnt=iSuccessCnt;
+            tPeerToPeerResultMsg.iFailCnt=iFailCnt;
+            tPeerToPeerResultMsg.iCurStatus=iCurStatus;
+            snprintf(tPeerToPeerResultMsg.strLocalID,sizeof(tPeerToPeerResultMsg.strLocalID),"%s",strLocalID.c_str());
+            snprintf(tPeerToPeerResultMsg.strPeerID,sizeof(tPeerToPeerResultMsg.strPeerID),"%s",strPeerID.c_str());
+            ThreadSafeQueue<QueueMessage> * pQueue=(ThreadSafeQueue<QueueMessage> *)oMsg.pSender;
+            QueueMessage oPeerToPeerResultMsg(REPORT_P2P_RESULT_ACK_MSG_ID,(unsigned char *)&tPeerToPeerResultMsg,sizeof(T_PeerToPeerResultMsg));
+            iRet=pQueue->Push(oPeerToPeerResultMsg);
+            if(iRet < 0)
+            {
+                P2P_LOGE("Peer2PeerManager::Proc REPORT_P2P_RESULT_ACK_MSG_ID err %d \r\n",iRet);
+            }
+            break;
+        }
+        default:
+        {
+            P2P_LOGE("Peer2PeerManager :: Proc oMsg.iMsgID err %d %d \r\n",oMsg.iMsgID,oMsg.iDataSize);
+            break;
+        }
+    }
     
-    if(NULL != pbFileBuf)
-    {
-        delete [] pbFileBuf;
-    } 
-    if(NULL != pbSrcFileBuf)
-    {
-        delete [] pbSrcFileBuf;
-    } 
-    if(NULL != pDstFile)
-    {
-        fclose(pDstFile);//fseek(m_pMediaFile,0,SEEK_SET); 
-    } 
-    return iWriteLen;
+    return iRet;
 }
 

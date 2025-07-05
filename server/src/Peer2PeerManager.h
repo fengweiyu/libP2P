@@ -9,14 +9,15 @@
 * Last Modified         : 	
 * History               : 	
 ******************************************************************************/
-#ifndef NAT_INFO_HANDLE_H
-#define NAT_INFO_HANDLE_H
+#ifndef PEER_2_PEER_MANAGER_H
+#define PEER_2_PEER_MANAGER_H
 
 #include <thread>
 #include <mutex>
 #include <string>
 #include <list>
 #include <map>
+#include "ServerSessionCom.h"
 
 using std::map;
 using std::string;
@@ -32,7 +33,7 @@ using std::thread;
 
 
 /*****************************************************************************
--Class			: NatInfo
+-Class			: Peer2PeerManager
 -Description	: 
 * Modify Date	  Version		 Author 		  Modification
 * -----------------------------------------------
@@ -41,7 +42,7 @@ using std::thread;
 class NatInfo
 {
 public:
-	NatInfo(){strPublicIP.clear();};
+	NatInfo(){pSession=NULL;strPublicIP.clear();iNatType=-1;iPublicPort=-1;};
 	virtual ~NatInfo(){};
 public:
     void * pSession;
@@ -60,13 +61,14 @@ public:
 class Peer2PeerResult
 {
 public:
-	Peer2PeerResult(){strLocalID.clear();strPeerID.clear();};
+	Peer2PeerResult(){strLocalID.clear();strPeerID.clear();iSuccessCnt=0;iFailCnt=0;};
 	virtual ~Peer2PeerResult(){};
 public:
     string strLocalID;
     string strPeerID;
     int iSuccessCnt;
     int iFailCnt;
+    int iCurStatus;//-1 Ê§°Ü,0 ³É¹¦
 };
 
 
@@ -82,13 +84,12 @@ class Peer2PeerManager
 public:
 	Peer2PeerManager();
 	virtual ~Peer2PeerManager();
-    int Test(const char * i_strSrcFilePath,const char *i_strDstFilePath);
+    int Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue);
 private:
-    int ReadFile(const char * i_strSrcFilePath,unsigned char **o_ppBuffer);
-    int Proc(const char * i_strSrcFilePath,const char *i_strDstFilePath);
 
     map<string,NatInfo> m_NatInfoMap;
     map<string,Peer2PeerResult> m_Peer2PeerResultMap;
+    ThreadSafeQueue<QueueMessage> * m_pMgrQueue;
 };
 
 #endif

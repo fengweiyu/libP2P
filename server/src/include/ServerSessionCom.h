@@ -1,7 +1,7 @@
 /*****************************************************************************
 * Copyright (C) 2020-2025 Hanson Yu  All rights reserved.
 ------------------------------------------------------------------------------
-* File Module           :    ServerCom.h
+* File Module           :    ServerSessionCom.h
 * Description           :    模块内部与外部调用者共同的依赖，放到对外的include里
 * Created               :    2020.01.13.
 * Author                :    Yu Weifeng
@@ -9,8 +9,8 @@
 * Last Modified         : 	
 * History               : 	
 ******************************************************************************/
-#ifndef HTTP_FLV_SERVER_COM_H
-#define HTTP_FLV_SERVER_COM_H
+#ifndef SERVER_SESSION_COM_H
+#define SERVER_SESSION_COM_H
 
 #include <iostream>  
 #include <thread>  
@@ -39,23 +39,96 @@
 #define SleepMs(val) usleep(val*1000)
 #endif
 
-#define REPORT_NAT_INFO_MSG_ID 6701
-#define GET_NAT_INFO_MSG_ID 6702
-#define REQ_PEER_SEND_MSG_MSG_ID 6703
-#define REPORT_P2P_RESULT_MSG_ID 6704
-#define GET_P2P_RESULT_MSG_ID 6705
+#define LOGIN_MSG_ID 6701
+#define REPORT_NAT_INFO_MSG_ID 6702
+#define GET_NAT_INFO_MSG_ID 6703
+#define GET_NAT_INFO_ACK_MSG_ID 6704
+#define REQ_PEER_SEND_MSG_MSG_ID 6705
+#define REQ_PEER_SEND_MSG_ACK_MSG_ID 6706
+#define REQ_SEND_MSG_TO_PEER_MSG_ID 6707
+#define REQ_SEND_MSG_TO_PEER_ACK_MSG_ID 6708
+#define REPORT_P2P_RESULT_MSG_ID 6709
+#define REPORT_P2P_RESULT_ACK_MSG_ID 6710
+
+
+typedef struct NatInfoMsg 
+{
+    char strID[64];
+    int iNatType;
+    char strPublicIP[64];
+    int iPublicPort;
+}T_NatInfoMsg;
+typedef struct ReqPeerSendMsg 
+{
+    char strPeerID[64];
+    T_NatInfoMsg tLocalNatInfo;
+}T_ReqPeerSendMsg;
+typedef struct ReqPeerSendAckMsg 
+{
+    int iResult;
+    T_NatInfoMsg tPeerNatInfo;
+}T_ReqPeerSendAckMsg;
+
+typedef struct ReqSendMsgToPeerResultMsg
+{
+    char strLocalID[64];
+    char strPeerID[64];
+    int iResult;
+}T_ReqSendMsgToPeerResultMsg;
+
+typedef struct PeerToPeerResultMsg
+{
+    char strLocalID[64];
+    char strPeerID[64];
+    int iSuccessCnt;
+    int iFailCnt;
+    int iCurStatus;//-1 失败,0 成功
+}T_PeerToPeerResultMsg;
+
+typedef struct Peer2PeerCfg
+{
+    char strStunServer1Addr[128];
+    int iStunServer1Port;
+    char strStunServer2Addr[128];
+    int iStunServer2Port;
+
+}T_Peer2PeerCfg;
+
+
+#define QUEUE_MSG_MAX_NUM 1000
 
 // 消息结构体  //消息ID数据，数据根据ID可自定义，数据可以根据ID解析处理
 class QueueMessage 
 {  
 public:  
     // 构造函数  
-    QueueMessage(int i_iDataSize) : iDataSize(i_iDataSize), pbData(new unsigned char[i_iDataSize]) {iMsgID=-1;}  
+    QueueMessage()
+    {
+        pbData = NULL;
+        iDataSize = 0;
+        iMsgID = -1;
+        pSender = NULL;
+    }
+    QueueMessage(int i_iMsgID,unsigned char * i_pbData,int i_iDataSize,void * i_pSender=NULL)
+    {
+        pbData=NULL;
+        iDataSize=0;
+        if(NULL != i_pbData)
+        {
+            pbData=new unsigned char[i_iDataSize];
+            std::copy(i_pbData,i_pbData + i_iDataSize, pbData);
+            iDataSize=i_iDataSize;
+        }
+        iMsgID=i_iMsgID;
+        pSender=i_pSender;
+    }
+    QueueMessage(int i_iDataSize) : iDataSize(i_iDataSize), pbData(new unsigned char[i_iDataSize]) {iMsgID=-1;pSender=NULL;}  
     // 拷贝构造函数（深拷贝）  
     QueueMessage(const QueueMessage& i_oOther) : iDataSize(i_oOther.iDataSize), pbData(new unsigned char[i_oOther.iDataSize]) 
     {  
         std::copy(i_oOther.pbData, i_oOther.pbData + i_oOther.iDataSize, pbData); 
         iMsgID=i_oOther.iMsgID;
+        pSender=i_oOther.pSender;
     }  
     ~QueueMessage() // 析构函数
     {  
@@ -73,12 +146,14 @@ public:
             std::copy(i_oOther.pbData, i_oOther.pbData + i_oOther.iDataSize, pbData);
             iDataSize = i_oOther.iDataSize;
             iMsgID=i_oOther.iMsgID;
+            pSender=i_oOther.pSender;
         }  
         return *this;  
     }  
-    int iMsgID;
-    unsigned char * pbData;
+    unsigned char * pbData;//自己申请,自己释放
     int iDataSize;
+    int iMsgID;
+    void * pSender;//外部传入，外部管理 申请 释放
 };  
 
 
@@ -87,8 +162,12 @@ template <typename T>
 class ThreadSafeQueue 
 {  
 public:  
-    void Push(const T& value) // 入队操作（深拷贝）
+    int Push(const T& value) // 入队操作（深拷贝）
     {  
+        if(m_queue.size() >= QUEUE_MSG_MAX_NUM)
+        {
+            return -1;
+        }
         /*
         使用unique_lock而不是lock_guard 的原因:
         unique_lock更灵活，可以中途解锁
@@ -103,7 +182,8 @@ public:
         被唤醒的线程会尝试重新获取关联的互斥锁
         notify_one()更高效，只唤醒一个需要的线程
         notify_all()适用于多个线程可能都需要响应的场景*/
-        m_cond.notify_one();  
+        m_cond.notify_one(); 
+        return 0;
     }  
 
     int Pop(T& value) // 出队操作（深拷贝）  
@@ -158,29 +238,6 @@ private:
     std::queue<T> m_queue; //std::queue<std::shared_ptr<T>> m_queue;  智能指针
     std::condition_variable m_cond;//使用条件变量(std::condition_variable)实现高效等待  
 };  
-
-
-// 线程工作函数  
-void workerThread(int thread_id,   
-                 ThreadSafeQueue<QueueMessage>& in_queue,  
-                 ThreadSafeQueue<QueueMessage>& out_queue,  
-                 bool& running) 
-{  
-    std::cout << "Thread " << thread_id << " started\n";  
-    
-    while (running) 
-    {  
-    }  
-    
-    std::cout << "Thread " << thread_id << " exiting\n";  
-}
-
-
-
-
-
-
-
 
 
 

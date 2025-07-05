@@ -1,7 +1,7 @@
 /*****************************************************************************
 * Copyright (C) 2020-2025 Hanson Yu  All rights reserved.
 ------------------------------------------------------------------------------
-* File Module           :       HttpFlvServerInf.h
+* File Module           :       ServerHandle.h
 * Description           : 	
 * Created               :       2020.01.13.
 * Author                :       Yu Weifeng
@@ -9,28 +9,35 @@
 * Last Modified         : 	
 * History               : 	
 ******************************************************************************/
-#ifndef HTTP_FLV_SERVER_INF_H
-#define HTTP_FLV_SERVER_INF_H
+#ifndef SERVER_HANDLE_H
+#define SERVER_HANDLE_H
 
+#include "ServerSessionCom.h"
+#include <thread>
+#include <mutex>
 
+using std::thread;
+using std::mutex;
 
 
 /*****************************************************************************
--Class          : HttpFlvServerInf
--Description    : HttpFlvServerInf
+-Class          : Proc
+-Description    : Proc
 * Modify Date     Version             Author           Modification
 * -----------------------------------------------
 * 2020/01/11      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-class HttpFlvServerInf
+class ServerHandle
 {
 public:
-	HttpFlvServerInf();
-	virtual ~HttpFlvServerInf();
-    int HandleHttpReq(const char * i_strReq,char *o_strRes,int i_iResMaxLen);//return ResLen,<0 err
-    int GetFLV(char *o_strRes,int i_iResMaxLen);
+	ServerHandle(ThreadSafeQueue<QueueMessage> * i_pMgrQueue);
+	virtual ~ServerHandle();
+    int Proc(ThreadSafeQueue<QueueMessage> * i_pMgrQueue);//10 ms³¬Ê±  
 private:
     void * m_pHandle;
+    
+    thread * m_pServerHandleProc;
+	int m_iServerHandleFlag;
 };
 
 

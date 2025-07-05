@@ -1,7 +1,7 @@
 /*****************************************************************************
 * Copyright (C) 2020-2025 Hanson Yu  All rights reserved.
 ------------------------------------------------------------------------------
-* File Module           :       HttpFlvServerInf.h
+* File Module           :       ServerSessionInf.h
 * Description           : 	
 * Created               :       2020.01.13.
 * Author                :       Yu Weifeng
@@ -9,26 +9,26 @@
 * Last Modified         : 	
 * History               : 	
 ******************************************************************************/
-#ifndef HTTP_FLV_SERVER_INF_H
-#define HTTP_FLV_SERVER_INF_H
+#ifndef SERVER_SESSION_INF_H
+#define SERVER_SESSION_INF_H
 
 
+#include "ServerSessionCom.h"
 
 
 /*****************************************************************************
--Class          : HttpFlvServerInf
--Description    : HttpFlvServerInf
+-Class          : ServerSessionInf
+-Description    : ServerSessionInf
 * Modify Date     Version             Author           Modification
 * -----------------------------------------------
 * 2020/01/11      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-class HttpFlvServerInf
+class ServerSessionInf
 {
 public:
-	HttpFlvServerInf();
-	virtual ~HttpFlvServerInf();
-    int HandleHttpReq(const char * i_strReq,char *o_strRes,int i_iResMaxLen);//return ResLen,<0 err
-    int GetFLV(char *o_strRes,int i_iResMaxLen);
+	ServerSessionInf(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg);
+	virtual ~ServerSessionInf();
+    int Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResMaxLen);//return ResLen,<0 err
 private:
     void * m_pHandle;
 };

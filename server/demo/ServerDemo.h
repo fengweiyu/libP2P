@@ -44,6 +44,7 @@ private:
     
     map<int, ServerIO *>  m_ServerIOMap;
     mutex m_MapMtx;
+    ServerHandle * m_pServerHandle;
 };
 
 #endif

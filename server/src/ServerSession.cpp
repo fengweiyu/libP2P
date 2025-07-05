@@ -31,29 +31,15 @@ using std::string;
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-ServerSession::ServerSession(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_ClientSessionCb * i_ptClientSessionCb,T_ClientSessionCfg * i_ptClientSessionCfg)
+ServerSession::ServerSession(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Peer2PeerCfg * i_ptPeer2PeerCfg)
 {
-    m_oSessionQueue.clear();
+    //m_oSessionQueue.clear();
 
     m_pMgrQueue=i_pMgrQueue;
-    // 从输入队列获取消息  
-    QueueMessage msg;  
-    if (m_pMgrQueue->WaitAndPop(msg, 100)<0) 
-    { // 100ms超时  
-        // 处理消息并回复  
-        Message reply;  
-        reply.sender_id = thread_id;  
-        reply.content = "Reply to: " + msg.content;  
-        out_queue.Push(reply);  
-    }  
 
-    memcpy(&m_tClientSessionCb,i_ptClientSessionCb,sizeof(T_ClientSessionCb));
-    memcpy(&m_tClientSessionCfg,i_ptClientSessionCfg,sizeof(T_ClientSessionCfg));
-    m_pPeer2PeerHandle = new Peer2PeerHandle();
-    memset(&m_tLocalNatInfo,0,sizeof(T_NatInfo));
-    memset(&m_tPeerNatInfo,0,sizeof(T_NatInfo));
-    m_iPeer2PeerHandleSuccessFlag=0;
-    m_eStatus=CLIENT_SESSION_LOGIN;
+    memset(&m_tLocalNatInfoMsg,0,sizeof(T_NatInfoMsg));
+    memset(&m_strLocalID,0,sizeof(m_strLocalID));
+    memcpy(&m_tPeer2PeerCfg,i_ptPeer2PeerCfg,sizeof(T_Peer2PeerCfg));
 }
 /*****************************************************************************
 -Fuction        : ~ServerSession
@@ -67,11 +53,7 @@ ServerSession::ServerSession(ThreadSafeQueue<QueueMessage> * i_pMgrQueue,T_Clien
 ******************************************************************************/
 ServerSession::~ServerSession()
 {
-    if(NULL != m_pPeer2PeerHandle)
-    {
-        delete m_pPeer2PeerHandle;
-        m_pPeer2PeerHandle = NULL;
-    }
+
 }
 /*****************************************************************************
 -Fuction        : Proc
@@ -92,221 +74,224 @@ int ServerSession::Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResM
 
     if(NULL == o_strRes)
     {
-        P2P_LOGE("ClientSession::Proc NULL err %d \r\n",i_iResMaxLen);
+        P2P_LOGE("ServerSession::Proc NULL err %d \r\n",i_iResMaxLen);
         return iRet;
     }
     memset(strCmdBuf,0,sizeof(strCmdBuf));
     if(NULL != i_strReq&&i_iReqLen>0)
     {
-        iRet=ParseServerMsg(i_strReq,&iReqOrRes,strCmdBuf,sizeof(strCmdBuf));
+        iRet=ParseClientMsg(i_strReq,&iReqOrRes,strCmdBuf,sizeof(strCmdBuf));
         if(iRet < 0)
         {
-            P2P_LOGE("ClientSession::Proc ParseServerMsg err %d \r\n",iRet);
+            P2P_LOGE("ServerSession::Proc ParseServerMsg err %d,%s\r\n",i_iReqLen,i_strReq);
             return iRet;
         }
+        P2P_LOGD("ParseClientMsg LocalID %s , %s \r\n",m_strLocalID,i_strReq);
     }
-    if(0 == iReqOrRes)
+    if(1 == iReqOrRes)//res
     {
         if(0==strcmp(strCmdBuf,"SendMsgToPeer"))
         {
-            char strPeerID[64];
-            int iPeerNatType=-1;
-            char strPeerPublicAddr[64];
-            int iPeerPublicPort=-1;
-            memset(strPeerID,0,sizeof(strPeerID));
-            memset(strPeerPublicAddr,0,sizeof(strPeerPublicAddr));
-            iRet=ParseSendMsgToPeerReq(i_strReq,strPeerID,sizeof(strPeerID),&iPeerNatType,strPeerPublicAddr,sizeof(strPeerPublicAddr),&iPeerPublicPort);
-            if(iRet < 0)
+            T_ReqSendMsgToPeerResultMsg tReqSendMsgToPeerResultMsg;
+            memset(&tReqSendMsgToPeerResultMsg,0,sizeof(T_ReqSendMsgToPeerResultMsg));
+            iRet=this->ParseSendMsgToPeerRes(i_strReq,tReqSendMsgToPeerResultMsg.strLocalID,sizeof(tReqSendMsgToPeerResultMsg.strLocalID),
+            tReqSendMsgToPeerResultMsg.strPeerID,sizeof(tReqSendMsgToPeerResultMsg.strPeerID));
+            if(iRet < 0||0 != strcmp(tReqSendMsgToPeerResultMsg.strLocalID,m_strLocalID))
             {
-                P2P_LOGE("ClientSession::Proc ParseSendMsgToPeerReq err %d \r\n",iRet);
-                return iRet;
+                P2P_LOGE("ServerSession::Proc ParseSendMsgToPeerRes err %d ,%s ,%s\r\n",iRet,tReqSendMsgToPeerResultMsg.strLocalID,m_strLocalID);
+                iRet=-1;
             }
-            iRet=m_pPeer2PeerHandle->SendMsgToPeer(iPeerNatType, (const char *)strPeerPublicAddr,iPeerPublicPort);
-            iRet = CreateSendMsgToPeerRes(m_tClientSessionCfg.strLocalID,strPeerID,iRet,iPeerNatType,(const char *)strPeerPublicAddr,iPeerPublicPort,
-            o_strRes,i_iResMaxLen);
-            if(iRet <= 0)
-            {
-                P2P_LOGE("ClientSession::Proc CreateSendMsgToPeerRes err %d \r\n",iRet);
-            }
+            tReqSendMsgToPeerResultMsg.iResult=iRet;
+            QueueMessage oReqSendResultMsg(REQ_SEND_MSG_TO_PEER_ACK_MSG_ID,(unsigned char *)&tReqSendMsgToPeerResultMsg,sizeof(T_ReqSendMsgToPeerResultMsg),&m_oSessionQueue);
+            iRet=m_pMgrQueue->Push(oReqSendResultMsg);  
             return iRet;
         }
         return iRet;
     }
-    switch(m_eStatus)
+    if(0 == iReqOrRes && 0==strcmp(strCmdBuf,"login"))
     {
-        case CLIENT_SESSION_LOGIN:
+        iRet=this->ParseLoginReq(i_strReq,m_strLocalID,sizeof(m_strLocalID));
+        if(iRet < 0)
         {
-            iRet = CreateLoginReq(m_tClientSessionCfg.strLocalID,o_strRes,i_iResMaxLen);
-            if(iRet <= 0)
+            P2P_LOGE("ServerSession::Proc ParseLoginReq err %d \r\n",iRet);
+            return iRet;
+        }
+        iRet = this->CreateLoginRes(&m_tPeer2PeerCfg, o_strRes,i_iResMaxLen);
+        if(iRet <= 0)
+        {
+            P2P_LOGE("ServerSession::Proc CreateLoginRes err %d \r\n",iRet);
+            return -1;
+        }
+        //QueueMessage oMsg(LOGIN_MSG_ID,(unsigned char *)m_oSessionQueue,4);
+        //iRet=m_pMgrQueue->Push(oMsg);  
+        return iRet;
+    }
+    if(0 == iReqOrRes && 0==strcmp(strCmdBuf,"ReportNatInfo"))
+    {
+        T_NatInfoMsg tNatInfoMsg;
+        memset(&tNatInfoMsg,0,sizeof(T_NatInfoMsg));
+        iRet=this->ParseReportNatInfoReq(i_strReq,tNatInfoMsg.strID,sizeof(tNatInfoMsg.strID),&tNatInfoMsg.iNatType,
+        tNatInfoMsg.strPublicIP,sizeof(tNatInfoMsg.strPublicIP),&tNatInfoMsg.iPublicPort);
+        if(0!=strcmp(tNatInfoMsg.strID,m_strLocalID)||iRet < 0)
+        {
+            P2P_LOGE("ServerSession::Proc ParseReportNatInfoReq err %d ,%s ,%s\r\n",iRet,tNatInfoMsg.strID,m_strLocalID);
+            return iRet;
+        }
+        memcpy(&m_tLocalNatInfoMsg,&tNatInfoMsg,sizeof(T_NatInfoMsg));
+        QueueMessage oReportMsg(REPORT_NAT_INFO_MSG_ID,(unsigned char *)&tNatInfoMsg,sizeof(T_NatInfoMsg),&m_oSessionQueue);
+        iRet=m_pMgrQueue->Push(oReportMsg);  
+        iRet = this->CreateReportNatInfoRes(iRet, o_strRes,i_iResMaxLen);
+        if(iRet <= 0)
+        {
+            P2P_LOGE("ServerSession::Proc CreateReportNatInfoRes err %d \r\n",iRet);
+            return -1;
+        }
+        return iRet;
+    }
+    if(0 == iReqOrRes && 0==strcmp(strCmdBuf,"PeerNatInfo"))
+    {
+        char strPeerID[64];
+        memset(strPeerID,0,sizeof(strPeerID));
+        iRet=this->ParsePeerNatInfoReq(i_strReq,strPeerID,sizeof(strPeerID));
+        if(strlen(strPeerID)<=0 ||iRet < 0)
+        {
+            P2P_LOGE("ServerSession::Proc ParsePeerNatInfoReq err %d ,%s ,%s\r\n",iRet,strPeerID,m_strLocalID);
+            return iRet;
+        }
+        QueueMessage oGetMsg(GET_NAT_INFO_MSG_ID,(unsigned char *)strPeerID,sizeof(strPeerID),&m_oSessionQueue);
+        iRet=m_pMgrQueue->Push(oGetMsg);  
+        if(iRet < 0)
+        {
+            P2P_LOGE("ServerSession::Proc GET_NAT_INFO_MSG_ID err %d \r\n",iRet);
+        }
+        return iRet;
+    }
+    if(0 == iReqOrRes && 0==strcmp(strCmdBuf,"PeerSendMsg"))
+    {
+        char strPeerID[64];
+        memset(&strPeerID,0,sizeof(strPeerID));
+        iRet=this->ParsePeerSendMsgReq(i_strReq,strPeerID,sizeof(strPeerID));
+        if(iRet < 0)
+        {
+            P2P_LOGE("ServerSession::Proc ParsePeerSendMsgReq err %d ,%s ,%s\r\n",iRet,strPeerID,m_strLocalID);
+            return iRet;
+        }
+        T_ReqPeerSendMsg tReqPeerSendMsg;
+        memset(&tReqPeerSendMsg,0,sizeof(T_ReqPeerSendMsg));
+        memcpy(tReqPeerSendMsg.strPeerID,strPeerID,sizeof(strPeerID));
+        memcpy(&tReqPeerSendMsg.tLocalNatInfo,&m_tLocalNatInfoMsg,sizeof(T_NatInfoMsg));
+        QueueMessage oReqSendMsg(REQ_PEER_SEND_MSG_MSG_ID,(unsigned char *)&tReqPeerSendMsg,sizeof(T_ReqPeerSendMsg),&m_oSessionQueue);
+        iRet=m_pMgrQueue->Push(oReqSendMsg);  
+        return iRet;
+    }
+    if(0 == iReqOrRes && 0==strcmp(strCmdBuf,"ReportResult"))
+    {
+        T_ReqSendMsgToPeerResultMsg tReqSendMsgToPeerResultMsg;
+        memset(&tReqSendMsgToPeerResultMsg,0,sizeof(T_ReqSendMsgToPeerResultMsg));
+        iRet=this->ParseReportResultReq(i_strReq,tReqSendMsgToPeerResultMsg.strLocalID,sizeof(tReqSendMsgToPeerResultMsg.strLocalID),
+        tReqSendMsgToPeerResultMsg.strPeerID,sizeof(tReqSendMsgToPeerResultMsg.strPeerID));
+        if(iRet < 0)
+        {
+            P2P_LOGE("ServerSession::Proc ParseReportResultReq err %d ,strLocalID %s ,strPeerID %s\r\n",iRet,tReqSendMsgToPeerResultMsg.strLocalID,tReqSendMsgToPeerResultMsg.strPeerID);
+        }
+        tReqSendMsgToPeerResultMsg.iResult=iRet;
+        QueueMessage oPeer2PeerResultMsg(REPORT_P2P_RESULT_MSG_ID,(unsigned char *)&tReqSendMsgToPeerResultMsg,sizeof(T_ReqSendMsgToPeerResultMsg),&m_oSessionQueue);
+        iRet=m_pMgrQueue->Push(oPeer2PeerResultMsg);  
+        return iRet;
+    }
+    QueueMessage oMsg;
+    if (0!=m_oSessionQueue.WaitAndPop(oMsg, 10)) // 10ms超时  
+    { 
+        return iRet;
+    }
+    // 处理消息
+    switch(oMsg.iMsgID)
+    {
+        case GET_NAT_INFO_ACK_MSG_ID:
+        {
+            T_NatInfoMsg tNatInfoMsg;
+            if(sizeof(T_NatInfoMsg)!= oMsg.iDataSize)
             {
-                P2P_LOGE("ClientSession::Proc CreateLoginReq err %d \r\n",iRet);
+                P2P_LOGE("ServerSession :: Proc GET_NAT_INFO_ACK_MSG_ID err %d %d \r\n",sizeof(T_NatInfoMsg),oMsg.iDataSize);
                 return iRet;
             }
-            m_eStatus=CLIENT_SESSION_LOGIN_ACK;
-            break;
-        }
-        case CLIENT_SESSION_LOGIN_ACK:
-        {
-            T_Peer2PeerCfg tPeer2PeerCfg;
-            memset(&tPeer2PeerCfg,0,sizeof(T_Peer2PeerCfg));
-            if(1 == iReqOrRes && 0==strcmp(strCmdBuf,"login"))
-            {
-                iRet=this->ParseLoginRes(i_strReq,&tPeer2PeerCfg);
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc ParseLoginRes err %d \r\n",iRet);
-                    return iRet;
-                }
-                T_Peer2PeerCb tPeer2PeerCb;
-                memset(&tPeer2PeerCb,0,sizeof(T_Peer2PeerCb));
-                tPeer2PeerCb.Init = m_tClientSessionCb.Init;
-                tPeer2PeerCb.SendData = m_tClientSessionCb.SendData;
-                tPeer2PeerCb.RecvData = m_tClientSessionCb.RecvData;
-                tPeer2PeerCb.Close= m_tClientSessionCb.Close;
-                tPeer2PeerCb.pSessionHandle = this;
-                tPeer2PeerCb.ReportLocalNatInfo = ClientSession::ReportResultCb;
-                iRet=m_pPeer2PeerHandle->Proc(&tPeer2PeerCb,,(const char *)tPeer2PeerCfg.strStunServer1Addr,
-                tPeer2PeerCfg.iStunServer1Port,(const char *)tPeer2PeerCfg.strStunServer1Addr,tPeer2PeerCfg.iStunServer2Port);
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc m_pPeer2PeerHandle err %d \r\n",iRet);
-                    return iRet;
-                }
-                m_eStatus=CLIENT_SESSION_REPORT_NAT_INFO;
-            }
-            break;
-        }
-        case CLIENT_SESSION_REPORT_NAT_INFO:
-        {
-            iRet = this->CreateReportNatInfoReq(m_tClientSessionCfg.strLocalID,m_tLocalNatInfo.iNatType, (const char *)m_tLocalNatInfo.strIP,
-            m_tLocalNatInfo.iPort,o_strRes,i_iResMaxLen);
+            memset(&tNatInfoMsg,0,sizeof(T_NatInfoMsg));
+            memcpy(&tNatInfoMsg,(T_NatInfoMsg *)oMsg.pbData,sizeof(T_NatInfoMsg));
+        
+            iRet = this->CreatePeerNatInfoRes(tNatInfoMsg.strID,tNatInfoMsg.iNatType,tNatInfoMsg.strPublicIP, tNatInfoMsg.iPublicPort,o_strRes,i_iResMaxLen);
             if(iRet <= 0)
             {
-                P2P_LOGE("ClientSession::Proc CreateReportNatInfoReq err %d \r\n",iRet);
+                P2P_LOGE("ServerSession::Proc CreatePeerNatInfoRes err %d \r\n",iRet);
+                return -1;
+            }
+            break;
+        }
+        case REQ_SEND_MSG_TO_PEER_MSG_ID:
+        {
+            T_NatInfoMsg tPeerNatInfoMsg;
+            if(sizeof(T_NatInfoMsg)!= oMsg.iDataSize)
+            {
+                P2P_LOGE("ServerSession :: Proc REQ_SEND_MSG_TO_PEER_MSG_ID err %d %d \r\n",sizeof(T_NatInfoMsg),oMsg.iDataSize);
                 return iRet;
             }
-            m_eStatus=CLIENT_SESSION_REPORT_NAT_INFO_ACK;
-            break;
-        }
-        case CLIENT_SESSION_REPORT_NAT_INFO_ACK:
-        {
-            if(1 == iReqOrRes && 0==strcmp(strCmdBuf,"ReportNatInfo"))
-            {
-                iRet=this->ParseReportNatInfoRes(i_strReq,strResResultDesc,sizeof(strResResultDesc));
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc ParseReportNatInfoRes err %d \r\n",iRet);
-                    return iRet;
-                }
-                if(strlen(m_tClientSessionCfg.strPeerID)>0)
-                {
-                    m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_PREPARE;
-                }
-            }
-            break;
-        }
-        case CLIENT_SESSION_PEER_2_PEER_HANDLE_PREPARE:
-        {
-            iRet = this->CreatePeerNatInfoReq(m_tClientSessionCfg.strLocalID,m_tClientSessionCfg.strPeerID,o_strRes,i_iResMaxLen);
+            memset(&tPeerNatInfoMsg,0,sizeof(T_NatInfoMsg));
+            memcpy(&tPeerNatInfoMsg,(T_NatInfoMsg *)oMsg.pbData,sizeof(T_NatInfoMsg));
+            iRet = this->CreateSendMsgToPeerReq(tPeerNatInfoMsg.strID,tPeerNatInfoMsg.iNatType,tPeerNatInfoMsg.strPublicIP, tPeerNatInfoMsg.iPublicPort,o_strRes,i_iResMaxLen);
             if(iRet <= 0)
             {
-                P2P_LOGE("ClientSession::Proc CreatePeerNatInfoReq err %d \r\n",iRet);
+                P2P_LOGE("ServerSession::Proc CreateSendMsgToPeerReq err %d \r\n",iRet);
+                return -1;
+            }
+            break;
+        }
+        case REQ_PEER_SEND_MSG_ACK_MSG_ID:
+        {
+            T_ReqPeerSendAckMsg tReqPeerSendAckMsg;
+            if(sizeof(T_ReqPeerSendAckMsg)!= oMsg.iDataSize)
+            {
+                P2P_LOGE("ServerSession :: Proc REQ_PEER_SEND_MSG_ACK_MSG_ID err %d %d \r\n",sizeof(T_ReqPeerSendAckMsg),oMsg.iDataSize);
                 return iRet;
             }
-            m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_START;
-            break;
-        }
-        case CLIENT_SESSION_PEER_2_PEER_HANDLE_START:
-        {
-            if(1 == iReqOrRes && 0==strcmp(strCmdBuf,"PeerNatInfo"))
-            {
-                T_NatInfo tPeerNatInfo;
-                memset(&tNatInfo,0,sizeof(T_NatInfo));
-                iRet=this->ParsePeerNatInfoRes(i_strReq,m_tClientSessionCfg.strPeerID,&tPeerNatInfo.iNatType,tPeerNatInfo.strIP,sizeof(tPeerNatInfo.strIP),&tPeerNatInfo.iPort)
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc ParsePeerNatInfoRes err %d \r\n",iRet);
-                    return iRet;
-                }
-                iRet=m_pPeer2PeerHandle->Peer2PeerHoleHandle(m_tLocalNatInfo.iNatType,tPeerNatInfo.iNatType,tPeerNatInfo.strIP, tPeerNatInfo.iPort);
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc Peer2PeerHoleHandle err %d \r\n",iRet);
-                    return iRet;
-                }
-                if(0 == iRet)
-                {
-                    iRet = this->CreatePeerSendMsgReq(m_tClientSessionCfg.strLocalID,m_tClientSessionCfg.strPeerID, m_tLocalNatInfo.iNatType, (const char *)m_tLocalNatInfo.strIP,
-                                                    m_tLocalNatInfo.iPort,o_strRes,i_iResMaxLen);
-                    if(iRet <= 0)
-                    {
-                        P2P_LOGE("ClientSession::Proc CreatePeerSendMsgReq err %d \r\n",iRet);
-                        return iRet;
-                    }
-                    m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_PROC;
-                }
-            }
-            break;
-        }
-        case CLIENT_SESSION_PEER_2_PEER_HANDLE_PROC:
-        {
-            if(1 == iReqOrRes && 0==strcmp(strCmdBuf,"PeerSendMsg"))
-            {
-                iRet=this->ParsePeerSendMsgRes(i_strReq,m_tClientSessionCfg.strPeerID,strResResultDesc,sizeof(strResResultDesc));
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc ParsePeerSendMsgRes err %d \r\n",iRet);
-                    return iRet;
-                }
-                m_pPeer2PeerHandle->SetPeerSendedMsgToLocalFlag(1);
-                iRet=m_pPeer2PeerHandle->Peer2PeerHoleHandle(m_tLocalNatInfo.iNatType,tPeerNatInfo.iNatType,tPeerNatInfo.strIP, tPeerNatInfo.iPort);
-                if(iRet <= 0)
-                {
-                    P2P_LOGE("ClientSession::Proc Peer2PeerHoleHandle err %d \r\n",iRet);
-                    return iRet;
-                }
-                m_iPeer2PeerHandleSuccessFlag=1;
-                m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_REPORT;
-            }
-            break;
-        }
-        case CLIENT_SESSION_PEER_2_PEER_HANDLE_REPORT:
-        {
-            iRet = this->CreateReportResultReq(m_tClientSessionCfg.strLocalID,m_tClientSessionCfg.strPeerID,m_iPeer2PeerHandleSuccessFlag,o_strRes,i_iResMaxLen);
+            memset(&tReqPeerSendAckMsg,0,sizeof(T_ReqPeerSendAckMsg));
+            memcpy(&tReqPeerSendAckMsg,(T_NatInfoMsg *)oMsg.pbData,sizeof(T_ReqPeerSendAckMsg));
+            iRet = this->CreatePeerSendMsgRes(tReqPeerSendAckMsg.iResult,tReqPeerSendAckMsg.tPeerNatInfo.strID,tReqPeerSendAckMsg.tPeerNatInfo.iNatType,
+            tReqPeerSendAckMsg.tPeerNatInfo.strPublicIP,tReqPeerSendAckMsg.tPeerNatInfo.iPublicPort,o_strRes,i_iResMaxLen);
             if(iRet <= 0)
             {
-                P2P_LOGE("ClientSession::Proc CreateReportResultReq err %d \r\n",iRet);
-                return iRet;
+                P2P_LOGE("ServerSession::Proc CreatePeerSendMsgRes err %d \r\n",iRet);
+                return -1;
             }
-            m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_REPORT_ACK;
             break;
         }
-        case CLIENT_SESSION_PEER_2_PEER_HANDLE_REPORT_ACK:
+        case REPORT_P2P_RESULT_ACK_MSG_ID:
         {
-            if(1 == iReqOrRes && 0==strcmp(strCmdBuf,"ReportResult"))
+            T_PeerToPeerResultMsg tPeerToPeerResultMsg;
+            if(sizeof(T_PeerToPeerResultMsg)!= oMsg.iDataSize)
             {
-                int iSuccessCnt=0;
-                int iFailCnt=0;
-                iRet=this->ParseReportResultRes(i_strReq,m_tClientSessionCfg.strLocalID,m_tClientSessionCfg.strPeerID,&iSuccessCnt,&iFailCnt);
-                if(iRet < 0)
-                {
-                    P2P_LOGE("ClientSession::Proc ParseReportResultRes err %d \r\n",iRet);
-                    return iRet;
-                }
-                P2P_LOGI("ReportResult iSuccessCnt %d ,iFailCnt %d \r\n",iSuccessCnt,iFailCnt);
+                P2P_LOGE("ServerSession :: Proc REQ_PEER_SEND_MSG_ACK_MSG_ID err %d %d \r\n",sizeof(T_PeerToPeerResultMsg),oMsg.iDataSize);
+                return iRet;
+            }
+            memset(&tPeerToPeerResultMsg,0,sizeof(T_PeerToPeerResultMsg));
+            memcpy(&tPeerToPeerResultMsg,(T_PeerToPeerResultMsg *)oMsg.pbData,sizeof(T_PeerToPeerResultMsg));
+            iRet = this->CreateReportResultRes(tPeerToPeerResultMsg.strLocalID,tPeerToPeerResultMsg.strPeerID,tPeerToPeerResultMsg.iSuccessCnt,
+            tPeerToPeerResultMsg.iFailCnt,tPeerToPeerResultMsg.iCurStatus,o_strRes,i_iResMaxLen);
+            if(iRet <= 0)
+            {
+                P2P_LOGE("ServerSession::Proc CreateReportResultRes err %d \r\n",iRet);
+                return -1;
             }
             break;
         }
         default:
         {
-            P2P_LOGW("ClientSession::Proc eClientSessionStatus err %d \r\n",m_eStatus);
+            P2P_LOGW("ServerSession::Proc iMsgID err %d \r\n",oMsg.iMsgID);
             break;
         }
 
     }
     if(iRet < 0)
     {
-        P2P_LOGE("ClientSession::Proc err m_eStatus %d \r\n",m_eStatus);
+        P2P_LOGE("ServerSession::Proc err %d \r\n",iRet);
     }
     return iRet;
 }
@@ -545,12 +530,13 @@ int ServerSession::ParsePeerSendMsgReq(char * i_strMsg,char * o_strID,int i_iIDB
     
     if(NULL == i_strMsg||NULL == o_strID)
     {
-        P2P_LOGE("ParsePeerNatInfoReq NULL err %d \r\n",iRet);
+        P2P_LOGE("ParsePeerSendMsgReq NULL err %d \r\n",iRet);
         return iRet;
     }
     
     cJSON * ptRootJson = NULL;
     cJSON * ptBodyJson = NULL;
+    cJSON * ptNatInfo = NULL;
     cJSON * ptNode = NULL;
     ptRootJson = cJSON_Parse(i_strMsg);
     if(NULL != ptRootJson)
@@ -567,6 +553,26 @@ int ServerSession::ParsePeerSendMsgReq(char * i_strMsg,char * o_strID,int i_iIDB
             if(NULL != ptNode&& NULL != ptNode->valuestring)
             {
                 ptNode = NULL;
+            }
+            ptNatInfo = cJSON_GetObjectItem(ptBodyJson,"LocalNatInfo");
+            if(NULL != ptNatInfo)
+            {
+                ptNode = cJSON_GetObjectItem(ptNatInfo,"NatType");
+                if(NULL != ptNode)
+                {
+                    ptNode = NULL;
+                }
+                ptNode = cJSON_GetObjectItem(ptNatInfo,"PublicIP");
+                if(NULL != ptNode&& NULL != ptNode->valuestring)
+                {
+                    ptNode = NULL;
+                }
+                ptNode = cJSON_GetObjectItem(ptNatInfo,"PublicPort");
+                if(NULL != ptNode)
+                {
+                    ptNode = NULL;
+                }
+                ptNatInfo = NULL;
             }
             ptNode = cJSON_GetObjectItem(ptBodyJson,"PeerID");
             if(NULL != ptNode&& NULL != ptNode->valuestring)
@@ -592,7 +598,7 @@ int ServerSession::ParsePeerSendMsgReq(char * i_strMsg,char * o_strID,int i_iIDB
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-int ServerSession::ParseSendMsgToPeerRes(char * i_strMsg,char * o_strLocalID,,int i_iLocalBufMaxLen,char * o_strPeerID,int i_iPeerBufMaxLen)
+int ServerSession::ParseSendMsgToPeerRes(char * i_strMsg,char * o_strLocalID,int i_iLocalBufMaxLen,char * o_strPeerID,int i_iPeerBufMaxLen)
 {
     int iRet = -1;
     char strDesrc[64];
@@ -626,7 +632,7 @@ int ServerSession::ParseSendMsgToPeerRes(char * i_strMsg,char * o_strLocalID,,in
             ptNode = cJSON_GetObjectItem(ptBodyJson,"LocalID");
             if(NULL != ptNode&& NULL != ptNode->valuestring)
             {
-                snprintf(o_strLocalID,o_strPeerID,"%s",ptNode->valuestring);
+                snprintf(o_strLocalID,i_iLocalBufMaxLen,"%s",ptNode->valuestring);
                 ptNode = NULL;
             }
             ptNode = cJSON_GetObjectItem(ptBodyJson,"PeerID");
@@ -686,7 +692,7 @@ int ServerSession::ParseSendMsgToPeerRes(char * i_strMsg,char * o_strLocalID,,in
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-int ServerSession::ParseReportResultReq(char * i_strMsg,char * o_strLocalID,,int i_iLocalBufMaxLen,char * o_strPeerID,int i_iPeerBufMaxLen)
+int ServerSession::ParseReportResultReq(char * i_strMsg,char * o_strLocalID,int i_iLocalBufMaxLen,char * o_strPeerID,int i_iPeerBufMaxLen)
 {
     int iRet = -1;
     char strDesrc[64];
@@ -715,7 +721,7 @@ int ServerSession::ParseReportResultReq(char * i_strMsg,char * o_strLocalID,,int
             ptNode = cJSON_GetObjectItem(ptBodyJson,"LocalID");
             if(NULL != ptNode&& NULL != ptNode->valuestring)
             {
-                snprintf(o_strLocalID,o_strPeerID,"%s",ptNode->valuestring);
+                snprintf(o_strLocalID, i_iLocalBufMaxLen,"%s",ptNode->valuestring);
                 ptNode = NULL;
             }
             ptNode = cJSON_GetObjectItem(ptBodyJson,"PeerID");
@@ -774,7 +780,7 @@ int ServerSession::CreateLoginRes(T_Peer2PeerCfg * i_ptPeer2PeerCfg,char * o_pcR
     cJSON_AddNumberToObject(pData, "StunServer1Port", i_ptPeer2PeerCfg->iStunServer1Port);
     cJSON_AddStringToObject(pData, "StunServer2Addr", i_ptPeer2PeerCfg->strStunServer2Addr);
     cJSON_AddNumberToObject(pData, "StunServer2Port", i_ptPeer2PeerCfg->iStunServer2Port);
-    cJSON_AddItemToObject(root, "data", pData)
+    cJSON_AddItemToObject(root, "data", pData);
 
     char * buf = cJSON_PrintUnformatted(root);
     if(buf)
@@ -976,7 +982,7 @@ int ServerSession::CreateSendMsgToPeerReq(const char * i_strPeerID,int i_iNatTyp
 * -----------------------------------------------
 * 2020/01/13      V1.0.0              Yu Weifeng       Created
 ******************************************************************************/
-int ServerSession::CreateReportResultRes(const char * i_strLocalID,const char * i_strPeerID,int i_iSuccessCnt,int i_iFailCnt,char * o_pcResBuf,int i_iBufMaxLen)
+int ServerSession::CreateReportResultRes(const char * i_strLocalID,const char * i_strPeerID,int i_iSuccessCnt,int i_iFailCnt,int i_iCurStatus,char * o_pcResBuf,int i_iBufMaxLen)
 {
     int iRet = -1;
 
@@ -994,6 +1000,7 @@ int ServerSession::CreateReportResultRes(const char * i_strLocalID,const char * 
     cJSON_AddStringToObject(pData, "PeerID", i_strPeerID);
     cJSON_AddNumberToObject(pData, "SuccessCnt", i_iSuccessCnt);
     cJSON_AddNumberToObject(pData, "FailCnt", i_iFailCnt);
+    cJSON_AddStringToObject(pData, "CurStatus", 0==i_iCurStatus?"SUCCESS":"FAIL");
 
     cJSON_AddItemToObject(root, "data", pData);
 
