@@ -16,18 +16,17 @@
 #include <stdio.h>
 #include <string>
 #include "Peer2PeerAdapter.h"
-#include "NatDetect.h"
-#include "UdpHoleHandle.h"
 
 
 using std::string;
 
 typedef struct Peer2PeerCb
 {
-    void * (*Init)(const char * strProtocolType,const char * i_strPeerIP,int i_iPeerPort);
+    int (*Init)(void *i_pIoHandle,const char * i_strPeerIP,int i_iPeerPort);
     int (*SendData)(void *i_pIoHandle,unsigned char * i_pbSendBuf,int i_iSendLen);
     int (*RecvData)(void *i_pIoHandle,unsigned char *o_pbRecvBuf,int i_iRecvBufMaxLen);//返回非正值，则认为无响应无法收到数据
-    int (*Close)(void *i_pIoHandle);
+    int (*ChangePeerAddr)(void *i_pIoHandle,const char *i_pstrPeerAddr,int i_iPeerPort);
+    void * pIoHandleObj;//固定使用一个内网ip和端口，穿透成功后用的也是这个(内网IP端口和外网一一对应即固定映射关系)
     void * pSessionHandle;
     int (*ReportLocalNatInfo)(void *i_pSessionHandle,int i_iNatType,const char * i_strPublicIP,int i_iPublicPort);
     int (*GetPeerNatInfo)(void *i_pSessionHandle,char * o_pcIP, int i_iMaxLenIP,int * o_iPort,int * o_iNatType);//可以为NULL,表示不获取对方net信息，被动等待对方来连
@@ -48,18 +47,18 @@ public:
     Peer2PeerHandle();
     virtual ~Peer2PeerHandle();
     int Proc(T_Peer2PeerCb *i_ptPeer2PeerCb,const char * i_strLocalIP,const char * i_strStunServer1IP,int i_iStunServer1Port,const char * i_strStunServer2IP,int i_iStunServer2Port);
-    int SendMsgToPeer(int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort);
     int Peer2PeerHoleHandle(int i_iLocalNatType,int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort);
     int SetPeerSendedMsgToLocalFlag(int i_iPeerSendedMsgToLocalFlag);
+    int SendMsgToPeer(int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort);
+    int RecvMsgFromPeer(int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort);
 
     static int ReportResultCb(void * i_pReportObj,int i_iNatType,const char * i_strPublicIP,int i_iPublicPort);
-    
-private:
     int LocalNatInfoHandle(int i_iNatType,const char * i_strPublicIP,int i_iPublicPort);
+private:
 
     T_Peer2PeerCb m_tPeer2PeerCb;//
-    UdpHoleHandle * m_pUdpHoleHandle;
-    NatDetect * m_pNatDetect;
+    void * m_pUdpHoleHandle;
+    void * m_pNatDetect;
 };
 
 

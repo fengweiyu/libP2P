@@ -24,7 +24,7 @@
 #ifdef _WIN32
 #include <WinSock2.h> //win 没有epoll只有类似的IOCP 
 #include <ws2tcpip.h> 
-//#include <iphlpapi.h> //
+#include <iphlpapi.h> //
 #else
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -72,6 +72,42 @@ UdpSocket::~UdpSocket()
 }
 
 /*****************************************************************************
+-Fuction		: GetSocketAddrPort
+-Description	: 
+-Input			: 
+-Output 		: 
+-Return 		: 
+* Modify Date	  Version		 Author 		  Modification
+* -----------------------------------------------
+* 2017/09/21	  V1.0.0		 Yu Weifeng 	  Created
+******************************************************************************/
+int UdpSocket::GetSocketAddrPort(int i_iSocketFd,string * o_strIP,int * o_iPort) 
+{  
+    int iPort = -1;
+    struct sockaddr_in tAddr;  
+    socklen_t iAddrLen = 0; 
+    
+    if(i_iSocketFd<0||NULL == o_strIP ||NULL == o_iPort)
+    {
+        UDP_LOGE("GetSocketAddrPort err %d \r\n",i_iSocketFd);
+        return -1;
+    }
+    // 获取套接字绑定的地址信息  
+    memset(&tAddr,0, sizeof(tAddr));
+    iAddrLen = sizeof(tAddr); 
+    if (getsockname(i_iSocketFd, (struct sockaddr *)&tAddr, &iAddrLen) < 0) 
+    {  
+        UDP_LOGE("getsockname err %d \r\n",i_iSocketFd);
+        return -1;
+    }  
+
+    // 提取 IP 和端口  
+    *o_iPort = ntohs(tAddr.sin_port);  
+    o_strIP->assign(inet_ntoa(tAddr.sin_addr));
+    return 0;
+} 
+
+/*****************************************************************************
 -Fuction		: ResolveDomain
 -Description	: ResolveDomain
 -Input			: 
@@ -84,8 +120,8 @@ UdpSocket::~UdpSocket()
 int UdpSocket::GetLocalAddr(string * o_strIP) 
 {  
 #ifdef _WIN32
-    return -1;//
-#if 0
+    //return -1;
+
     ULONG outBufLen = 0;  
     DWORD dwRetVal = 0;  
 
@@ -133,7 +169,7 @@ int UdpSocket::GetLocalAddr(string * o_strIP)
         printf("GetAdaptersAddresses() failed to get buffer size\n");  
     }  
     return -1;  
-
+#if 0
     //旧版本win sdk
     DWORD   dwSize = 0;  
     DWORD   dwRetVal = 0;  
@@ -153,7 +189,7 @@ int UdpSocket::GetLocalAddr(string * o_strIP)
             IP_ADAPTER_ADDRESSES *pCurrAddresses = pAddresses;  
             while (pCurrAddresses) 
             {  
-                IP_ADDR_STRING *pIpAddr = &pCurrAddresses->IpAddressList;  
+                IP_ADDR_STRING *pIpAddr = &pCurrAddresses->IpAddressList;//新版这里报错 
                 while (pIpAddr) 
                 {  
                     if (strcmp(pIpAddr->IpAddress.String, "127.0.0.1") != 0) 
@@ -305,6 +341,7 @@ UdpServer::UdpServer()
 ******************************************************************************/
 UdpServer::~UdpServer()
 {
+    Close();
 }
 
 /*****************************************************************************
@@ -359,6 +396,8 @@ int UdpServer::Init(const char *i_pstrClientIP,unsigned short i_wClientPort,cons
         // Set Sockfd NONBLOCK //暂时使用阻塞形式的
         //iSocketStatus=fcntl(iSocketFd, F_GETFL, 0);
         //fcntl(iSocketFd, F_SETFL, iSocketStatus | O_NONBLOCK);    
+        //int optval = 1;  //允许重复绑定
+        //setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)); 
         
         // Connect to server
         //this->GetIpAndPort(i_URL,&IP,&wPort);
@@ -563,17 +602,17 @@ int UdpServer::Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMa
     {
         if(m_strClientIP.length()>0 && m_wClientPort!=0)
         {
-            /*bzero(&tClientAddr, sizeof(tClientAddr));
+            memset(&tClientAddr,0, sizeof(tClientAddr));
             tClientAddr.sin_family = AF_INET;
             tClientAddr.sin_port = htons(m_wClientPort);//
             tClientAddr.sin_addr.s_addr = inet_addr(m_strClientIP.c_str());
             if(0!=memcmp(&tClientAddr,&tRecvClientAddr,sizeof(struct sockaddr_in)))//判断数据来源
-            {
+            {//判断数据来源
                 string strRecv(inet_ntoa(tRecvClientAddr.sin_addr));
-                cout<<"Recv data from err IP:\r\n"<<strRecv<<" Port:"<<ntohs(tRecvClientAddr.sin_port)<<endl;
+                UDP_LOGE("Recv err,iRecvLen %d, PeerAddr: %s PeerPort: %d,RecvAddr: %s RecvPort: %d\r\n",iRecvLen,m_strClientIP.c_str(),m_wClientPort,strRecv.c_str(),ntohs(tRecvClientAddr.sin_port));
                 iRet=FALSE;
             }
-            else*/
+            else
             {
                 *o_piRecvLen=iRecvLen;
                 iRet=TRUE;
@@ -594,6 +633,34 @@ int UdpServer::Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMa
     return iRet;
 }
 
+
+
+
+/*****************************************************************************
+-Fuction        : SetPeerAddrPort
+-Description    : SetPeerAddrPort
+-Input          : 
+-Output         : 
+-Return         : 
+* Modify Date     Version        Author           Modification
+* -----------------------------------------------
+* 2017/09/21      V1.0.0         Yu Weifeng       Created
+******************************************************************************/
+int UdpServer::SetPeerAddrPort(const char *i_pstrPeerAddr,unsigned short i_wPeerPort)
+{
+    if(i_pstrPeerAddr!=NULL && i_wPeerPort!=0)
+    {
+        if(UdpSocket::ResolveDomain(i_pstrPeerAddr,&m_strClientIP) < 0)
+        {
+            UDP_LOGE("UdpServer::ResolveDomain err exit %s,%s\r\n",i_pstrPeerAddr,m_strClientIP.c_str());
+            return -1;
+        }
+        m_wClientPort=i_wPeerPort;
+        return 0;
+    }
+    UDP_LOGE("UdpClient SetPeerAddrPort err:%d",i_wPeerPort);
+    return -1;
+}
 
 
 /*****************************************************************************
@@ -626,11 +693,30 @@ void UdpServer::Close(int i_iSocketFd)
 #else
         close(iSocketFd);  
 #endif
+        if(i_iSocketFd<0)
+        {
+            m_iServerSocketFd=-1;
+        }
 	}
 	else
 	{
-		UDP_LOGE("Close err:%d",iSocketFd);
+        UDP_LOGE("Close err,already closed iSocketFd:%d",iSocketFd);
 	}
+}
+
+/*****************************************************************************
+-Fuction        : GetLocalSocketFd
+-Description    : 
+-Input          : 
+-Output         : 
+-Return         : 
+* Modify Date     Version        Author           Modification
+* -----------------------------------------------
+* 2017/09/21      V1.0.0         Yu Weifeng       Created
+******************************************************************************/
+int UdpServer::GetLocalSocketFd()
+{
+    return m_iServerSocketFd;
 }
 
 /*****************************************************************************
@@ -662,7 +748,7 @@ UdpClient::UdpClient()
 ******************************************************************************/
 UdpClient::~UdpClient()
 {
-
+    Close();
 }
 
 /*****************************************************************************
@@ -722,6 +808,9 @@ int UdpClient::Init(const char *i_pstrServerIP,unsigned short i_wServerPort,cons
         // Set Sockfd NONBLOCK //暂时使用阻塞形式的
         //iSocketStatus=fcntl(iSocketFd, F_GETFL, 0);
         //fcntl(iSocketFd, F_SETFL, iSocketStatus | O_NONBLOCK);    
+        //int optval = 1;  //允许重复绑定
+        //setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)); 
+
         if(NULL != i_pstrIP && 0!=i_wPort)
         {//绑定端口确保端口是连续的rtp rtcp
             memset(&tClientAddr,0,sizeof(tClientAddr));
@@ -735,16 +824,16 @@ int UdpClient::Init(const char *i_pstrServerIP,unsigned short i_wServerPort,cons
                 break;
             }
         }
-        memset(&tServerAddr,0, sizeof(tServerAddr));
+        /*memset(&tServerAddr,0, sizeof(tServerAddr));
         tServerAddr.sin_family = AF_INET;
         tServerAddr.sin_port = htons(i_wServerPort);
-        tServerAddr.sin_addr.s_addr = inet_addr(strIP.c_str());
+        tServerAddr.sin_addr.s_addr = inet_addr(strIP.c_str());//使用connect 就无法使用sendto 向其他地址发送
         if(connect(iSocketFd, (struct sockaddr *)&tServerAddr, sizeof(tServerAddr)) < 0 && errno != EINPROGRESS) 
         {//使用connect的目的是Init后就可以获取到本地连接的端口，否则只能sendto之后才能获取
             perror(NULL);
             UDP_LOGE("UdpSocket connect err\r\n");
             break;
-        }
+        }*/
         m_strServerIP.assign(strIP.c_str());
         m_wServerPort=i_wServerPort;
         m_iClientSocketFd=iSocketFd;
@@ -810,8 +899,8 @@ int UdpClient::Send(unsigned char * i_pbSendBuf,int i_iSendLen,int i_iSocketFd)
     tServerAddr.sin_addr.s_addr = inet_addr(m_strServerIP.c_str());
     while(1)
     {
-        //iRet=sendto(iSocketFd,acSendBuf,iSendLen,0,(struct sockaddr*)&tClientAddr,sizeof(tClientAddr));
-        iRet=send(iSocketFd,(char *)pbSendBuf,iSendLen,0);
+        iRet=sendto(iSocketFd,(char *)pbSendBuf,iSendLen,0,(struct sockaddr*)&tServerAddr,sizeof(tServerAddr));
+        //iRet=send(iSocketFd,(char *)pbSendBuf,iSendLen,0);
         if(iRet<0)
         {
             UDP_LOGE("sendto err %d %d\r\n",i_iSendLen,m_wServerPort);
@@ -829,7 +918,7 @@ int UdpClient::Send(unsigned char * i_pbSendBuf,int i_iSendLen,int i_iSocketFd)
         }
     }
     //string strSend(i_acSendBuf);
-    //cout<<"Send :\r\n"<<strSend<<"iRet:"<<iRet<<endl;
+    UDP_LOGE("UdpClient::sendto i_iSendLen %d, %s,%d\r\n",i_iSendLen,m_strServerIP.c_str(),m_wServerPort);
     return iRet;
 }
 
@@ -890,7 +979,7 @@ int UdpClient::Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMa
     FD_ZERO(&tReadFds); //清空描述符集合    
     FD_SET(iSocketFd, &tReadFds); //设置描述符集合
         
-    //while(1)//udp是面向数据报的，没有粘包,不需要一直读
+    while(1)//udp是面向数据报的，没有粘包,不需要一直读
     {
         iRet = select(iSocketFd + 1, &tReadFds, NULL, NULL, ptTimeValue);//调用select（）监控函数//NULL 一直等到有变化
         if(iRet<0)  
@@ -924,42 +1013,74 @@ int UdpClient::Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMa
         {
             //break;
         }
-    }
-    
-    if(iRecvLen>0 && iRet==TRUE)
-    {
-        if(m_strServerIP.length()>0 && m_wServerPort!=0)
+        
+        if(iRecvLen>0 && iRet==TRUE)
         {
-            /*bzero(&tServerAddr, sizeof(tServerAddr));
-            tServerAddr.sin_family = AF_INET;
-            tServerAddr.sin_port = htons(m_wServerPort);//
-            tServerAddr.sin_addr.s_addr = inet_addr(m_strServerIP.c_str());
-            if(0!=memcmp(&tServerAddr,&tRecvServerAddr,sizeof(struct sockaddr_in)))
-            {//判断数据来源
-                string strRecv(inet_ntoa(tRecvServerAddr.sin_addr));
-                cout<<"Recv data from err IP:\r\n"<<strRecv<<" Port:"<<ntohs(tRecvServerAddr.sin_port)<<endl;
-                iRet=FALSE;
-            }
-            else*/
+            if(m_strServerIP.length()>0 && m_wServerPort!=0)
             {
-                *o_piRecvLen=iRecvLen;
-                iRet=TRUE;
+                memset(&tServerAddr,0, sizeof(tServerAddr));
+                tServerAddr.sin_family = AF_INET;
+                tServerAddr.sin_port = htons(m_wServerPort);//
+                tServerAddr.sin_addr.s_addr = inet_addr(m_strServerIP.c_str());
+                if(0!=memcmp(&tServerAddr,&tRecvServerAddr,sizeof(struct sockaddr_in)))
+                {//判断数据来源
+                    UDP_LOGE("Recv err,iRecvLen %d, PeerAddr: %s PeerPort: %d,RecvAddr: %s RecvPort: %d\r\n",iRecvLen,m_strServerIP.c_str(),m_wServerPort,inet_ntoa(tRecvServerAddr.sin_addr),ntohs(tRecvServerAddr.sin_port));
+                    iRet=FALSE;
+                    //pbRecvBuf=o_pbRecvBuf;//重试
+                    //continue;
+                }
+                else
+                {
+                    UDP_LOGD("Recv iRecvLen %d, PeerAddr: %s PeerPort: %d,RecvAddr: %s RecvPort: %d\r\n",iRecvLen,m_strServerIP.c_str(),m_wServerPort,inet_ntoa(tRecvServerAddr.sin_addr),ntohs(tRecvServerAddr.sin_port));
+                    *o_piRecvLen=iRecvLen;
+                    iRet=TRUE;
+                }
+            }
+            else
+            {
+                UDP_LOGE("Recv m_strServerIP err %d %d\r\n",iRecvLen,m_wServerPort);
+                iRet=FALSE;
             }
         }
         else
         {
-            UDP_LOGE("Recv m_strServerIP err %d %d\r\n",iRecvLen,m_wServerPort);
+            //cout<<"Recv err:"<<iRecvLen<<endl;
             iRet=FALSE;
         }
-    }
-    else
-    {
-        //cout<<"Recv err:"<<iRecvLen<<endl;
-        iRet=FALSE;
+        return iRet;
     }
     return iRet;
 }
 
+
+
+
+
+/*****************************************************************************
+-Fuction        : SetPeerAddrPort
+-Description    : SetPeerAddrPort
+-Input          : 
+-Output         : 
+-Return         : 
+* Modify Date     Version        Author           Modification
+* -----------------------------------------------
+* 2017/09/21      V1.0.0         Yu Weifeng       Created
+******************************************************************************/
+int UdpClient::SetPeerAddrPort(const char *i_pstrPeerAddr,unsigned short i_wPeerPort)
+{
+    if(i_pstrPeerAddr!=NULL && i_wPeerPort!=0)
+    {
+        if(UdpSocket::ResolveDomain(i_pstrPeerAddr,&m_strServerIP) < 0)
+        {
+            UDP_LOGE("UdpClient::ResolveDomain err exit %s,%s\r\n",i_pstrPeerAddr,m_strServerIP.c_str());
+            return -1;
+        }
+        m_wServerPort=i_wPeerPort;
+        return 0;
+    }
+    UDP_LOGE("UdpClient SetPeerAddrPort err:%d",i_wPeerPort);
+    return -1;
+}
 
 /*****************************************************************************
 -Fuction        : Close
@@ -991,17 +1112,21 @@ void UdpClient::Close(int i_iSocketFd)
 #else
         close(iSocketFd);  
 #endif
+        if(i_iSocketFd<0)
+        {
+            m_iClientSocketFd=-1;
+        }
     }
     else
     {
-        UDP_LOGE("Close err:%d",iSocketFd);
+        UDP_LOGE("Close err,already closed iSocketFd:%d",iSocketFd);
     }
 }
 
 
 /*****************************************************************************
--Fuction        : GetClientSocket
--Description    : GetClientSocket
+-Fuction        : GetLocalSocketFd
+-Description    : 
 -Input          : 
 -Output         : 
 -Return         : 
@@ -1009,7 +1134,7 @@ void UdpClient::Close(int i_iSocketFd)
 * -----------------------------------------------
 * 2017/09/21      V1.0.0         Yu Weifeng       Created
 ******************************************************************************/
-int UdpClient::GetClientSocket()
+int UdpClient::GetLocalSocketFd()
 {
     return m_iClientSocketFd;
 }

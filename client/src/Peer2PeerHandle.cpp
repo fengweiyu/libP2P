@@ -10,6 +10,8 @@
 * History			: 	
 ******************************************************************************/
 #include "Peer2PeerHandle.h"
+#include "NatDetect.h"
+#include "UdpHoleHandle.h"
 #include <string.h>
 
 /*****************************************************************************
@@ -43,11 +45,13 @@ Peer2PeerHandle::~Peer2PeerHandle()
 {
     if(NULL != m_pNatDetect)
     {
-        delete m_pNatDetect;
+        NatDetect *pNatDetect = (NatDetect *)m_pNatDetect;
+        delete pNatDetect;
     }
     if(NULL != m_pUdpHoleHandle)
     {
-        delete m_pUdpHoleHandle;
+        UdpHoleHandle *pUdpHoleHandle = (UdpHoleHandle *)m_pUdpHoleHandle;
+        delete pUdpHoleHandle;
     }
 }
 
@@ -75,23 +79,25 @@ int Peer2PeerHandle::Proc(T_Peer2PeerCb *i_ptPeer2PeerCb,const char * i_strLocal
     }
     
     memcpy(&m_tPeer2PeerCb,i_ptPeer2PeerCb,sizeof(T_Peer2PeerCb));
-    if(NULL == m_tPeer2PeerCb.SendData||NULL == m_tPeer2PeerCb.RecvData||NULL == m_tPeer2PeerCb.Init||NULL == m_tPeer2PeerCb.Close||
+    if(NULL == m_tPeer2PeerCb.SendData||NULL == m_tPeer2PeerCb.RecvData||NULL == m_tPeer2PeerCb.Init||NULL == m_tPeer2PeerCb.pIoHandleObj||
     NULL == m_tPeer2PeerCb.ReportLocalNatInfo||NULL == m_tPeer2PeerCb.pSessionHandle)
     {
         P2P_LOGE("NULL == m_tPeer2PeerCb. err %d %d\r\n",i_iStunServer1Port,i_iStunServer2Port);
         return iRet;
     }
-
+    P2P_LOGD("i_strStunServer1IP %s,i_iStunServer1Port %d,i_strStunServer2IP %s,i_iStunServer2Port %d\r\n",i_strStunServer1IP,i_iStunServer1Port,i_strStunServer2IP,i_iStunServer2Port);
     memset(&tNatDetectCb,0,sizeof(T_NatDetectCb));
     tNatDetectCb.pReportObj = this;
     tNatDetectCb.ReportResult = Peer2PeerHandle::ReportResultCb;
     tNatDetectCb.Init = i_ptPeer2PeerCb->Init;
     tNatDetectCb.SendData = i_ptPeer2PeerCb->SendData;
     tNatDetectCb.RecvData = i_ptPeer2PeerCb->RecvData;
-    tNatDetectCb.Close= i_ptPeer2PeerCb->Close;
+    tNatDetectCb.ChangePeerAddr= i_ptPeer2PeerCb->ChangePeerAddr;
+    tNatDetectCb.pIoHandleObj= i_ptPeer2PeerCb->pIoHandleObj;
     if(NULL == m_pNatDetect)
         m_pNatDetect=new NatDetect(&tNatDetectCb,i_strLocalIP,i_strStunServer1IP,i_iStunServer1Port,i_strStunServer2IP,i_iStunServer2Port);
-    return m_pNatDetect->Proc();
+    NatDetect *pNatDetect = (NatDetect *)m_pNatDetect;
+    return pNatDetect->Proc();
 }
 
 /*****************************************************************************
@@ -216,25 +222,26 @@ int Peer2PeerHandle::Peer2PeerHoleHandle(int i_iLocalNatType,int i_iPeerNatType,
     if(i_iLocalNatType >= 4||i_iLocalNatType<0)
     {
         P2P_LOGW("Peer2PeerHoleHandle warn i_iLocalNatType %d ,PeerPublicIP %s,PeerPublicPort %d \r\n",i_iLocalNatType,i_strPeerPublicIP,i_iPeerPublicPort);
-        return iRet;
+        //return iRet;
     }
     if(i_iPeerNatType >= 4||i_iPeerNatType<0)
     {
         P2P_LOGW("Peer2PeerHoleHandle warn i_iPeerNatType %d ,i_strPeerPublicIP %s,i_iPeerPublicPort %d \r\n",i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
-        return iRet;
+        //return iRet;
     }
     P2P_LOGI("Peer2PeerHoleHandle i_iPeerNatType %d ,i_strPeerPublicIP %s,i_iPeerPublicPort %d \r\n",i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
 
     memset(&tUdpHoleHandleCb,0,sizeof(T_UdpHoleHandleCb));
-    tUdpHoleHandleCb.Init = m_tPeer2PeerCb.Init;
+    tUdpHoleHandleCb.ChangePeerAddr = m_tPeer2PeerCb.ChangePeerAddr;
     tUdpHoleHandleCb.SendData = m_tPeer2PeerCb.SendData;
     tUdpHoleHandleCb.RecvData = m_tPeer2PeerCb.RecvData;
-    tUdpHoleHandleCb.Close= m_tPeer2PeerCb.Close;
+    tUdpHoleHandleCb.pIoHandleObj= m_tPeer2PeerCb.pIoHandleObj;
     if(NULL == m_pUdpHoleHandle)
     {
-        m_pUdpHoleHandle=new UdpHoleHandle();
+        m_pUdpHoleHandle=new UdpHoleHandle(&tUdpHoleHandleCb);
     }
-    return m_pUdpHoleHandle->Proc(&tUdpHoleHandleCb,i_iLocalNatType,i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
+    UdpHoleHandle *pUdpHoleHandle = (UdpHoleHandle *)m_pUdpHoleHandle;
+    return pUdpHoleHandle->Proc(i_iLocalNatType,i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
 }
 
 /*****************************************************************************
@@ -254,7 +261,8 @@ int Peer2PeerHandle::SetPeerSendedMsgToLocalFlag(int i_iPeerSendedMsgToLocalFlag
         P2P_LOGE("SetPeerSendedMsgToLocalFlag NULL == m_pUdpHoleHandle err %d \r\n",i_iPeerSendedMsgToLocalFlag);
         return -1;
     }
-    return m_pUdpHoleHandle->SetPeerSendedMsgToLocalFlag(i_iPeerSendedMsgToLocalFlag);
+    UdpHoleHandle *pUdpHoleHandle = (UdpHoleHandle *)m_pUdpHoleHandle;
+    return pUdpHoleHandle->SetPeerSendedMsgToLocalFlag(i_iPeerSendedMsgToLocalFlag);
 }
 
 /*****************************************************************************
@@ -269,12 +277,46 @@ int Peer2PeerHandle::SetPeerSendedMsgToLocalFlag(int i_iPeerSendedMsgToLocalFlag
 ******************************************************************************/
 int Peer2PeerHandle::SendMsgToPeer(int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort)
 {
+    T_UdpHoleHandleCb tUdpHoleHandleCb;
+
     if(NULL == m_pUdpHoleHandle)
     {
-        P2P_LOGE("SendMsgToPeer NULL == m_pUdpHoleHandle err %d \r\n",i_iPeerNatType);
-        return -1;
+        memset(&tUdpHoleHandleCb,0,sizeof(T_UdpHoleHandleCb));
+        tUdpHoleHandleCb.ChangePeerAddr = m_tPeer2PeerCb.ChangePeerAddr;
+        tUdpHoleHandleCb.SendData = m_tPeer2PeerCb.SendData;
+        tUdpHoleHandleCb.RecvData = m_tPeer2PeerCb.RecvData;
+        tUdpHoleHandleCb.pIoHandleObj= m_tPeer2PeerCb.pIoHandleObj;
+        m_pUdpHoleHandle=new UdpHoleHandle(&tUdpHoleHandleCb);
     }
-    return m_pUdpHoleHandle->SendToPeer(i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
+    UdpHoleHandle *pUdpHoleHandle = (UdpHoleHandle *)m_pUdpHoleHandle;
+    return pUdpHoleHandle->SendToPeer(i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
+}
+
+/*****************************************************************************
+-Fuction		: SendMsgToPeer
+-Description	: 
+-Input			: 
+-Output 		: 
+-Return 		: 
+* Modify Date	  Version		 Author 		  Modification
+* -----------------------------------------------
+* 2020/09/21	  V1.0.0		 Yu Weifeng 	  Created
+******************************************************************************/
+int Peer2PeerHandle::RecvMsgFromPeer(int i_iPeerNatType,const char * i_strPeerPublicIP,int i_iPeerPublicPort)
+{
+    T_UdpHoleHandleCb tUdpHoleHandleCb;
+
+    if(NULL == m_pUdpHoleHandle)
+    {
+        memset(&tUdpHoleHandleCb,0,sizeof(T_UdpHoleHandleCb));
+        tUdpHoleHandleCb.ChangePeerAddr = m_tPeer2PeerCb.ChangePeerAddr;
+        tUdpHoleHandleCb.SendData = m_tPeer2PeerCb.SendData;
+        tUdpHoleHandleCb.RecvData = m_tPeer2PeerCb.RecvData;
+        tUdpHoleHandleCb.pIoHandleObj= m_tPeer2PeerCb.pIoHandleObj;
+        m_pUdpHoleHandle=new UdpHoleHandle(&tUdpHoleHandleCb);
+    }
+    UdpHoleHandle *pUdpHoleHandle = (UdpHoleHandle *)m_pUdpHoleHandle;
+    return pUdpHoleHandle->RecvFromPeer(i_iPeerNatType,i_strPeerPublicIP,i_iPeerPublicPort);
 }
 
 

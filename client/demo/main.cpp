@@ -17,8 +17,8 @@
 
 static void PrintUsage(char *i_strProcName);
 
-const char * g_strServerAddr="gwm-000-cn-0448.bcloud365.net";
-unsigned short g_wServerPort=9128;//9160;
+const char * g_strServerAddr="gwm-000-cn-0448.bcloud365.net";//"127.0.0.1";//"gwm-000-cn-0448.bcloud365.net";
+unsigned short g_wServerPort=9128;//9128;//9160;
 const char * g_strLocalID="P-12345678901234567890";
 
 /*****************************************************************************
@@ -62,27 +62,31 @@ int main(int argc, char* argv[])
     const char * strPeerID=NULL;
     const char * strLocalIP=NULL;
     
-    if(argc >1 && argc != 2 && argc != 3& & argc != 5 && argc != 6)
+    if(argc >1 && argc != 2 && argc != 4 && argc != 5 && argc != 6)
     {
         PrintUsage(argv[0]);
         return iRet;
     }
-    if(argc == 2||argc == 3||argc == 5||argc == 6)
+    if(argc==1)
+    {
+        PrintUsage(argv[0]);
+    }
+    if(argc == 2||argc == 4||argc == 5||argc == 6)
     {
         strLocalID=(const char *)argv[1];
     }
-    if(argc == 3||argc == 5||argc == 6)
+    if(argc == 4||argc == 5||argc == 6)
     {
-        strPeerID=(const char *)argv[2];
+        strServerAddr=(const char *)argv[2];
+        wServerPort=atoi(argv[3]);
     }
     if(argc == 5||argc == 6)
     {
-        strServerAddr=(const char *)argv[3];
-        wServerPort=atoi(argv[4]);
+        strLocalIP=(const char *)argv[4];
     }
     if(argc == 6)
     {
-        strLocalIP=(const char *)argv[5];
+        strPeerID=(const char *)argv[5];
     }
     iRet=p2pClientProc(strLocalID, strPeerID, strServerAddr,wServerPort, strLocalIP);
     return iRet;
@@ -100,9 +104,7 @@ p2pClient strLocalID strPeerID strServerAddr ServerPort strLocalIP
 ******************************************************************************/
 static void PrintUsage(char *i_strProcName)
 {
-    printf("Usage: %s strLocalID strPeerID strServerAddr ServerPort strLocalIP \r\n",i_strProcName);
-    printf("run default args: %s %s %s %d 127.0.0.1\r\n",i_strProcName,g_strLocalID,g_strServerAddr,g_wServerPort);
-    printf("client input url eg: http://localhost:9150/test/media/convert\r\n");
-    printf("client input url eg: http://localhost:9150/test/media/convert\r\n");
+    printf("Usage: %s strLocalID strServerAddr ServerPort strLocalIP strPeerID\r\n",i_strProcName);
+    printf("run default args: %s %s %s %d 127.0.0.1 NULL\r\n",i_strProcName,g_strLocalID,g_strServerAddr,g_wServerPort);
 }
 

@@ -33,6 +33,7 @@ class UdpSocket
 public:
 	UdpSocket();
 	virtual ~UdpSocket();
+    virtual int GetSocketAddrPort(int i_iSocketFd,string * o_strIP,int * o_iPort);
     virtual int ResolveDomain(const char * i_strDomain,string * o_strIP);
     static int GetLocalAddr(string * o_strIP);
     
@@ -40,6 +41,7 @@ public:
     virtual int Send(unsigned char * i_pbSendBuf,int i_iSendLen,int i_iSocketFd=-1)=0;//一旦某个参数开始指定默认值,它右边的所有参数都必须指定默认值.
     virtual int Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMaxLen,int i_iSocketFd=-1,int i_iTimeOutMs=1000)=0;//在调用具有默认参数的函数时, 若某个实参默认,其右边的所有实参都应该默认
     virtual void Close(int i_iSocketFd=-1)=0;//即无论是定义还是调用的时候默认的都得放到后面，https://www.cnblogs.com/LubinLew/p/DefaultParameters.html  
+    virtual int SetPeerAddrPort(const char *i_pstrPeerIP,unsigned short i_wPeerPort)=0;
 };
 
 
@@ -59,8 +61,9 @@ public:
     int Init(const char *i_pstrClientIP,unsigned short i_wClientPort,const char *i_pstrIP,unsigned short i_wPort);    
     int Send(unsigned char * i_pbSendBuf,int i_iSendLen,int i_iSocketFd=-1);
     int Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMaxLen,int i_iSocketFd=-1,int i_iTimeOutMs=1000);//-1 阻塞 0 非阻塞 >0超时时间
+    int SetPeerAddrPort(const char *i_pstrPeerAddr,unsigned short i_wPeerPort);
     void Close(int i_iSocketFd=-1);
-    
+    int GetLocalSocketFd();
 private:
     int             m_iServerSocketFd;
     string          m_strClientIP;//目的客户端IP，端口不会变，所以放在成员变量里
@@ -84,8 +87,9 @@ public:
     int Init(const char *i_pstrServerIP,unsigned short i_wServerPort,const char *i_pstrIP=NULL,unsigned short i_wPort=0);
     int Send(unsigned char * i_pbSendBuf,int i_iSendLen,int i_iSocketFd=-1);
     int Recv(unsigned char *o_pbRecvBuf,int *o_piRecvLen,int i_iRecvBufMaxLen,int i_iSocketFd=-1,int i_iTimeOutMs=1000);//-1 阻塞 0 非阻塞 >0超时时间
+    int SetPeerAddrPort(const char *i_pstrPeerAddr,unsigned short i_wPeerPort);
     void Close(int i_iSocketFd=-1);
-    int GetClientSocket();
+    int GetLocalSocketFd();
 private:
     int             m_iClientSocketFd;
     string          m_strServerIP;//目的服务器IP，端口不会变，所以放在成员变量里

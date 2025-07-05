@@ -200,13 +200,17 @@ int TcpServer::Init(string *i_strIP,unsigned short i_wPort)
             TCP_LOGE("TcpSocketInit socket err\r\n");
             break;
         }
-        // Set Sockfd NONBLOCK //暂时使用阻塞形式的
-        //iSocketStatus=fcntl(iSocketFd, F_GETFL, 0);
-        //fcntl(iSocketFd, F_SETFL, iSocketStatus | O_NONBLOCK);    
         int tmp = 1;
         if (setsockopt(iSocketFd, SOL_SOCKET, SO_REUSEADDR, (char *)&tmp, sizeof(tmp)) < 0) 
         {
             TCP_LOGE("TcpSocket setsockopt err\r\n");
+            break;
+        }
+        u_long mode = 1;  // 1 表示非阻塞，0 表示阻塞  
+        int result = ioctlsocket(iSocketFd, FIONBIO, &mode);  
+        if (result != NO_ERROR) 
+        {  
+            TCP_LOGE("TcpSocket setsockopt SO_NONBLOCK err\r\n");
             break;
         }
         int chOpt = 1;
@@ -275,11 +279,11 @@ int TcpServer::Accept()
     iClientSocketFd=accept(m_iServerSocketFd,(struct sockaddr*)&tClientAddr,&iLen);  //这里会等待客户端连接
     if(iClientSocketFd<0)  
     {  
-        TCP_LOGE("cannot accept client connect request\r\n");  
-        closesocket(m_iServerSocketFd);
-        m_iServerSocketFd = INVALID_SOCKET;
-        WSACleanup();
-        return iClientSocketFd;
+        //TCP_LOGE("cannot accept client connect request\r\n");  
+        //closesocket(m_iServerSocketFd);
+        //m_iServerSocketFd = INVALID_SOCKET;
+        //WSACleanup();
+        return iClientSocketFd;//非阻塞
     } 
     // 设置socket为非阻塞模式 //由于用select,暂不设置 
     u_long mode = 1;

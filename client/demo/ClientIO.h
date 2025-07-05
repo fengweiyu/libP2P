@@ -12,6 +12,7 @@
 #ifndef CLIENT_IO_H
 #define CLIENT_IO_H
 
+#include "ClientSession.h"
 #include "TcpSocket.h"
 #include "UdpSocket.h"
 #include <thread>
@@ -35,14 +36,16 @@ public:
     int Proc(const char * i_strLocalID,const char * i_strPeerID,const char * i_strLocalIP);
     int GetProcFlag();
 
-    static void * IoInit(const char * strProtocolType,const char * i_strPeerIP,int i_iPeerPort);//回调使用
+    static int IoInit(void * i_pIoHandle,const char * i_strPeerIP,int i_iPeerPort);//回调使用
     static int IoSendData(void *i_pIoHandle,unsigned char * i_pbSendBuf,int i_iSendLen);
     static int IoRecvData(void *i_pIoHandle,unsigned char *o_pbRecvBuf,int i_iRecvBufMaxLen);
+    static int IoChangePeerAddr(void *i_pIoHandle,const char *i_pstrPeerAddr,int i_iPeerPort);
     static int IoClose(void *i_pIoHandle);
 private:
 	int m_iClientSocketFd;
 	
     ClientSession * m_pClientSession;
+    UdpClient m_oIoHandle;    
 
     thread * m_pHttpServerIOProc;
 	int m_iIOProcFlag;

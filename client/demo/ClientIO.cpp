@@ -91,7 +91,7 @@ int ClientIO :: Proc(const char * i_strLocalID,const char * i_strPeerID,const ch
     int iRecvLen=-1;
     char *pcSendBuf=NULL;
     int iSendLen=-1;
-    timeval tTimeValue;
+    //timeval tTimeValue;
     T_ClientSessionCb tClientSessionCb;
     T_ClientSessionCfg tClientSessionCfg;
 
@@ -108,10 +108,11 @@ int ClientIO :: Proc(const char * i_strLocalID,const char * i_strPeerID,const ch
     }
 
     memset(&tClientSessionCb,0,sizeof(T_ClientSessionCb));
-    tClientSessionCfg.Init = ClientIO::IoInit;
-    tClientSessionCfg.SendData = ClientIO::IoSendData;
-    tClientSessionCfg.RecvData = ClientIO::IoRecvData;
-    tClientSessionCfg.Close= ClientIO::IoClose;
+    tClientSessionCb.Init = ClientIO::IoInit;
+    tClientSessionCb.SendData = ClientIO::IoSendData;
+    tClientSessionCb.RecvData = ClientIO::IoRecvData;
+    tClientSessionCb.pIoHandleObj= &m_oIoHandle;
+    tClientSessionCb.ChangePeerAddr = ClientIO::IoChangePeerAddr;
     memset(&tClientSessionCfg,0,sizeof(T_ClientSessionCfg));
     snprintf(tClientSessionCfg.strLocalID,sizeof(tClientSessionCfg.strLocalID),"%s",i_strLocalID);
     if(NULL!= i_strLocalIP)
@@ -157,7 +158,7 @@ int ClientIO :: Proc(const char * i_strLocalID,const char * i_strPeerID,const ch
     while(m_iIOProcFlag)
     {
         memset(pcSendBuf,0,IO_SEND_MAX_LEN);
-        iRet=m_pClientSession->Proc(pcRecvBuf,iRecvLen,pcSendBuf,IO_SEND_MAX_LEN)
+        iRet=m_pClientSession->Proc(pcRecvBuf,iRecvLen,pcSendBuf,IO_SEND_MAX_LEN);
         if(iRet > 0)
         {
             iSendLen=iRet;
@@ -227,30 +228,19 @@ int ClientIO :: GetProcFlag()
 * -----------------------------------------------
 * 2020/09/21	  V1.0.0		 Yu Weifeng 	  Created
 ******************************************************************************/
-void * ClientIO::IoInit(const char * strProtocolType,const char * i_strPeerIP,int i_iPeerPort)
+int ClientIO::IoInit(void * i_pIoHandle,const char * i_strPeerIP,int i_iPeerPort)
 {
     int iRet = -1;
     UdpClient * pUdpClient = NULL;
     
-    if(NULL == strProtocolType ||0!=strcmp("UDP",strProtocolType)||NULL == i_strPeerIP||i_iPeerPort<0)
+    if(NULL == i_pIoHandle ||NULL == i_strPeerIP||i_iPeerPort<0)
     {
         P2P_LOGE("IoInit err %d %d\r\n",iRet,i_iPeerPort);
-        return pUdpClient;
+        return iRet;
     }
-    if(0!=strcmp("UDP",strProtocolType))
-    {
-        P2P_LOGE("IoInit err %d %d\r\n",iRet,i_iPeerPort);
-        return pUdpClient;
-    }
-    pUdpClient = new UdpClient();
+    pUdpClient = (UdpClient *)i_pIoHandle;    
     iRet = pUdpClient->Init(i_strPeerIP, (unsigned short)i_iPeerPort);
-    if(iRet<0)
-    {
-        P2P_LOGE("pUdpClient->Init err %d %d\r\n",iRet,i_iPeerPort);
-        delete pUdpClient;
-        pUdpClient = NULL;
-    }
-    return pUdpClient;
+    return iRet;
 }
 
 /*****************************************************************************
@@ -275,6 +265,11 @@ int ClientIO::IoSendData(void *i_pIoHandle, unsigned char * i_pbSendBuf,int i_iS
     }
     pUdpClient = (UdpClient *)i_pIoHandle;    
     iRet = pUdpClient->Send(i_pbSendBuf,i_iSendLen);
+
+    string strIP;
+    int iPort=0;
+    pUdpClient->GetSocketAddrPort(pUdpClient->GetLocalSocketFd(),&strIP,&iPort);
+    P2P_LOGD("pUdpClient->GetLocalSocketAddrPort %s %d\r\n",strIP.c_str(),iPort);    
     return iRet;
 }
 
@@ -307,6 +302,31 @@ int ClientIO::IoRecvData(void *i_pIoHandle, unsigned char * o_pbRecvBuf,int i_iR
         return -1;
     }
     return iRecvLen;
+}
+
+/*****************************************************************************
+-Fuction        : IoChangePeerAddr
+-Description    : SetPeerAddrPort
+-Input          : 
+-Output         : 
+-Return         : 
+* Modify Date     Version        Author           Modification
+* -----------------------------------------------
+* 2017/09/21      V1.0.0         Yu Weifeng       Created
+******************************************************************************/
+int ClientIO::IoChangePeerAddr(void *i_pIoHandle,const char *i_pstrPeerAddr,int i_iPeerPort)
+{
+    int iRet = -1;
+    UdpClient * pUdpClient = NULL;
+
+    if(NULL == i_pIoHandle ||NULL == i_pstrPeerAddr ||i_iPeerPort<0)
+    {
+        P2P_LOGE("IoChangePeerAddr err %d %d\r\n",iRet,i_iPeerPort);
+        return iRet;
+    }
+    pUdpClient = (UdpClient *)i_pIoHandle;    
+    iRet = pUdpClient->SetPeerAddrPort(i_pstrPeerAddr,(unsigned short)i_iPeerPort);
+    return iRet;
 }
 
 /*****************************************************************************
