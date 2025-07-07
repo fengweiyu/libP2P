@@ -1,0 +1,3 @@
+[submodule "client/src/third/libSTUN"]
+	path = client/src/third/libSTUN
+	url = https://github.com/fengweiyu/libSTUN.git
