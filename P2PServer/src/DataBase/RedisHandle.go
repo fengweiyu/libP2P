@@ -38,21 +38,21 @@ func (r *CRedisHandle) Connect() error {
 		r.DialTimeout = 5
 	}
 	//ctx := context.Background() 的作用是创建一个没有截止时间和取消功能的空上下文，它是context包中的一种类型，提供了一个没有截止时间、没有附加值、没有取消的上下文环境。
-	/*ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.DialTimeout)*time.Second) //context.WithTimeout()：设置超时时间，超时后自动取消操作。
-	defer cancel()*/
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(r.DialTimeout)*time.Second) //context.WithTimeout()：设置超时时间，超时后自动取消操作。
+	defer cancel()
 
 	s := fmt.Sprintf("%s:%d", r.Addr, r.Port)
 	cli := redis.NewClient(&redis.Options{
 		Addr:        s,
 		Password:    r.Password,
-		DialTimeout: time.Duration(r.DialTimeout),
+		DialTimeout: time.Duration(r.DialTimeout) * time.Second,
 		DB:          0,
 	})
-	/*err := cli.Ping(ctx).Err()
+	err := cli.Ping(ctx).Err()
 	if err != nil && err.Error() != "ERR Client sent AUTH, but no password is set" {
 		r.Connected = false
 		return err//会报超时错误暂时不用
-	}*/
+	}
 	r.Cli = cli
 	r.Connected = true
 	return nil
