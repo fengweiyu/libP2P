@@ -239,7 +239,7 @@ int ClientSession::Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResM
                     P2P_LOGE("ClientSession::Proc Peer2PeerHoleHandle err %d \r\n",m_eStatus);
                     return iRet;
                 }
-                if(0 == iRet)
+                if(0 == iRet)//返回值0 表示要求对方发，然后再发一次
                 {
                     iRet = this->CreatePeerSendMsgReq(m_tClientSessionCfg.strLocalID,m_tClientSessionCfg.strPeerID, m_tLocalNatInfo.iNatType, (const char *)m_tLocalNatInfo.strIP,
                                                     m_tLocalNatInfo.iPort,o_strRes,i_iResMaxLen);
@@ -268,7 +268,7 @@ int ClientSession::Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResM
                 }
                 iRet=m_pPeer2PeerHandle->SetPeerSendedMsgToLocalFlag(1);
                 iRet=m_pPeer2PeerHandle->Peer2PeerHoleHandle(m_tLocalNatInfo.iNatType,tPeerNatInfo.iNatType,tPeerNatInfo.strIP, tPeerNatInfo.iPort);
-                if(iRet <= 0)
+                if(iRet <= 0)//成功返回1
                 {
                     P2P_LOGE("ClientSession::Proc SetPeerSendedMsgToLocalFlag Peer2PeerHoleHandle err %d \r\n",m_eStatus);
                     m_iPeer2PeerHandleSuccessFlag=0;
@@ -276,6 +276,7 @@ int ClientSession::Proc(char * i_strReq,int i_iReqLen,char *o_strRes,int i_iResM
                     return iRet;
                 }
                 m_iPeer2PeerHandleSuccessFlag=1;
+                iRet=0;//返回成功且不需要向服务器发数据
                 m_eStatus=CLIENT_SESSION_PEER_2_PEER_HANDLE_REPORT;
             }
             break;
